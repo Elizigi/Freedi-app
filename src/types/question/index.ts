@@ -1,28 +1,34 @@
-import { object, boolean, optional, enum_, InferOutput } from 'valibot';
+import { object, optional, enum_, InferOutput, array } from 'valibot';
 
 export enum QuestionType {
-	singleStep = 'single-step',
-	multipleSteps = 'multiple-steps',
+	massConsensus = 'mass-consensus',
+	stageQuestion = 'stage-question',
 }
 
-export enum QuestionStagesType {
-	singleStage = 'singleStage',
-	document = 'document',
-}
 export enum QuestionStage {
 	explanation = 'explanation',
-	suggestion = 'suggestion',
-	firstEvaluation = 'firstEvaluation',
-	secondEvaluation = 'secondEvaluation',
+	needs = 'needs',
+	research = 'research',
+	discussion = 'discussion',
+	suggestions = 'suggestions',
+	summery = 'summery',
+	other = 'other',
+}
+
+export enum QuestionSteps{
+	explanation = 'explanation',
+	suggest= 'suggest',
+	similar = 'similar',
+	randomEvaluation = 'random-evaluation',
+	topEvaluation = 'top-evaluation',
 	voting = 'voting',
 	finished = 'finished',
 }
 
 export const QuestionSettingsSchema = object({
-	isDocument: optional(boolean()),
 	questionType: optional(enum_(QuestionType)),
-	steps: optional(enum_(QuestionStagesType)),
-	currentStage: optional(enum_(QuestionStage)),
+	currentStep: optional(enum_(QuestionSteps)),
+	stages:optional(array(enum_(QuestionStage))),
 });
 
 export type QuestionSettings = InferOutput<typeof QuestionSettingsSchema>;
