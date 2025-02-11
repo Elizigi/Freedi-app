@@ -7,9 +7,20 @@ export enum QuestionStagesType {
 }
 export enum QuestionStage {
 	explanation = 'explanation',
-	suggestion = 'suggestion',
-	firstEvaluation = 'firstEvaluation',
-	secondEvaluation = 'secondEvaluation',
+	needs = 'needs',
+	research = 'research',
+	discussion = 'discussion',
+	suggestions = 'suggestions',
+	summery = 'summery',
+	other = 'other',
+}
+
+export enum QuestionSteps{
+	explanation = 'explanation',
+	suggest= 'suggest',
+	similar = 'similar',
+	randomEvaluation = 'random-evaluation',
+	topEvaluation = 'top-evaluation',
 	voting = 'voting',
 	finished = 'finished',
 	other = 'other',
