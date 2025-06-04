@@ -16,6 +16,7 @@ import { StatementType } from 'delib-npm';
 import OptionMCCard from './components/deleteCard/OptionMCCard';
 import DeletionLadyImage from '@/assets/images/rejectLady.png';
 import Button, { ButtonType } from '@/view/components/buttons/button/Button';
+import SearchBar from './components/searchBar/SearchBar';
 
 const MassConsensusAdmin = () => {
 	const { statementId } = useParams<{ statementId: string }>();
@@ -81,6 +82,8 @@ const MassConsensusAdmin = () => {
 					</div>
 				</div>
 				<h3>{t('Top options')}</h3>
+
+				<SearchBar options={topOptions} />
 
 				{topOptions?.map((option) => (
 					<OptionMCCard
