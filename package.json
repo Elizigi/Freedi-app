@@ -36,6 +36,10 @@
 		"deploy:test": "npm run deploy:h:test && npm run deploy:f:test && npm run deploy:rules:test"
 	},
 	"dependencies": {
+		"@capacitor/android": "^7.4.1",
+		"@capacitor/cli": "^7.4.1",
+		"@capacitor/core": "^7.4.1",
+		"@capacitor/ios": "^7.4.1",
 		"@reduxjs/toolkit": "^1.9.5",
 		"delib-npm": "^5.5.98",
 		"esbuild": "0.25.2",
