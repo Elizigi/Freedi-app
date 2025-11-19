@@ -1,3 +1,7 @@
+// All @use rules must come first
+@use './mixins' as *;
+@use './atoms/index' as *;
+@use './molecules/index' as *;
 @use './homePage.scss';
 @use './input.scss';
 @use './start.scss';
@@ -7,6 +11,7 @@
 @use './pageAnimation.scss';
 @use '../styles/header.scss';
 
+// @import rules come after @use rules
 @import "../../assets/fonts.css";
 
 :root {

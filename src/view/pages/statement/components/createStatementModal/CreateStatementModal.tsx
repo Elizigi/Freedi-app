@@ -2,8 +2,7 @@ import React, { FC, useState, useEffect, useRef } from "react";
 import { createStatementFromModal } from "../settings/statementSettingsCont";
 import newOptionGraphic from "@/assets/images/newOptionGraphic.png";
 import newQuestionGraphic from "@/assets/images/newQuestionGraphic.png";
-import { useUserConfig } from "@/controllers/hooks/useUserConfig";
-import Modal from "@/view/components/modal/Modal";
+import { useTranslation } from "@/controllers/hooks/useTranslation";
 import styles from './CreateStatementModal.module.scss';
 import Button, { ButtonType } from "@/view/components/buttons/button/Button";
 import { StatementType, Statement } from "delib-npm";
@@ -34,7 +33,7 @@ const CreateStatementModal: FC<CreateStatementModalProps> = ({
   const [isOptionSelected, setIsOptionSelected] = useState(defaultIsOption);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const { t } = useUserConfig();
+  const { t } = useTranslation();
   const { creator } = useAuthentication();
 
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -64,7 +63,7 @@ const CreateStatementModal: FC<CreateStatementModalProps> = ({
   };
 
   return (
-    <Modal className={styles.createStatementModal}>
+    <div className={styles.createStatementModal}>
       <form className={styles.overlay} onSubmit={onFormSubmit}>
         <div className={styles.modalImage}>
           <img
@@ -106,7 +105,7 @@ const CreateStatementModal: FC<CreateStatementModalProps> = ({
           onCancel={() => setShowModal(false)}
         />
       </form>
-    </Modal>
+    </div>
   );
 };
 
@@ -125,7 +124,7 @@ const Tabs: FC<TabsProps> = ({
   setIsOptionChosen,
   parentStatement,
 }) => {
-  const { t } = useUserConfig();
+  const { t } = useTranslation();
 
   // Determine available types based on parent restrictions
   let availableTypes = allowedTypes;
@@ -186,7 +185,7 @@ const CreateStatementButtons: FC<CreateStatementButtonsProps> = ({
   isOption,
   onCancel,
 }) => {
-  const { t } = useUserConfig();
+  const { t } = useTranslation();
 
   return (
     <div className={styles.createStatementButtons}>

@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-unsafe-function-type */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import {
   onDocumentUpdated,
   onDocumentCreated,
@@ -31,7 +29,9 @@ import { updateVote } from "./fn_vote";
 import {
   onNewSubscription,
   onStatementDeletionDeleteSubscriptions,
-  updateSubscriptionsSimpleStatement
+  updateSubscriptionsSimpleStatement,
+  validateRoleChange,
+  updateStatementMemberCount
 } from "./fn_subscriptions";
 import {
   updateParentOnChildUpdate,
@@ -64,6 +64,7 @@ import { getCluster, recoverLastSnapshot } from "./fn_clusters";
 import { checkProfanity } from "./fn_profanityChecker";
 import { handleImproveSuggestion } from "./fn_improveSuggestion";
 import { onStatementCreated } from "./fn_statementCreation";
+import { analyzeSubscriptionPatterns } from "./fn_metrics";
 
 // Popper-Hebbian functions
 import { analyzeFalsifiability } from "./fn_popperHebbian_analyzeFalsifiability";
@@ -80,7 +81,21 @@ export const db = getFirestore();
 
 // Environment configuration
 const isProduction = process.env.NODE_ENV === "production";
-console.info("Environment:", isProduction ? "Production" : "Development");
+
+/**
+ * Gets current timestamp in HH:MM:SS.mmm format
+ */
+export const getTimestamp = (): string => {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  const ms = String(now.getMilliseconds()).padStart(3, '0');
+  
+return `${hours}:${minutes}:${seconds}.${ms}`;
+};
+
+console.info(`[${getTimestamp()}] Environment:`, isProduction ? "Production" : "Development");
 
 /**
  * CORS configuration based on environment
@@ -117,10 +132,20 @@ const wrapHttpFunction = (
       cors: corsConfig,
     },
     async (req, res) => {
+      const startTime = Date.now();
+      const startTimestamp = getTimestamp();
+      const functionName = handler.name || 'HTTP function';
+      console.info(`[${startTimestamp}] ▶ Starting ${functionName}`);
+
       try {
         await handler(req, res);
+        const duration = Date.now() - startTime;
+        const endTimestamp = getTimestamp();
+        console.info(`[${endTimestamp}] ✓ Completed ${functionName} in ${duration}ms`);
       } catch (error) {
-        console.error("Error in HTTP function:", error);
+        const duration = Date.now() - startTime;
+        const endTimestamp = getTimestamp();
+        console.error(`[${endTimestamp}] ✗ Error in ${functionName} after ${duration}ms:`, error);
         res.status(500).send("Internal Server Error");
       }
     }
@@ -135,24 +160,33 @@ const wrapHttpFunction = (
  * @param {string} functionName - Function name for logging
  * @returns {Function} - Firebase function with error handling
  */
-
-//@ts-ignore
-const createFirestoreFunction = (
+const createFirestoreFunction = <T>(
   path: string,
-  triggerType: any,
-  callback: Function,
+  triggerType: typeof onDocumentCreated | typeof onDocumentUpdated | typeof onDocumentWritten | typeof onDocumentDeleted,
+  callback: (event: T) => Promise<unknown>,
   functionName: string
 ) => {
-  return triggerType(
+  // Type-safe wrapper that preserves the original event type from the callback
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (triggerType as any)(
     {
       document: path,
       ...functionConfig,
     },
-    async (event: any) => {
+    async (event: T) => {
+      const startTime = Date.now();
+      const startTimestamp = getTimestamp();
+      console.info(`[${startTimestamp}] ▶ Starting ${functionName}`);
+
       try {
         await callback(event);
+        const duration = Date.now() - startTime;
+        const endTimestamp = getTimestamp();
+        console.info(`[${endTimestamp}] ✓ Completed ${functionName} in ${duration}ms`);
       } catch (error) {
-        console.error(`Error in ${functionName}:`, error);
+        const duration = Date.now() - startTime;
+        const endTimestamp = getTimestamp();
+        console.error(`[${endTimestamp}] ✗ Error in ${functionName} after ${duration}ms:`, error);
         throw error;
       }
     }
@@ -174,6 +208,9 @@ exports.getCluster = wrapHttpFunction(getCluster);
 exports.recoverLastSnapshot = wrapHttpFunction(recoverLastSnapshot);
 exports.checkProfanity = checkProfanity;
 exports.improveSuggestion = wrapHttpFunction(handleImproveSuggestion);
+
+// PHASE 4 FIX: Metrics and monitoring functions
+exports.analyzeSubscriptionPatterns = analyzeSubscriptionPatterns;
 
 // Maintenance HTTP functions
 exports.maintainRole = wrapHttpFunction(maintainRole);
@@ -257,12 +294,28 @@ exports.onStatementDeletion = createFirestoreFunction(
 );
 
 // Subscription functions
-// This function handles waiting role subscriptions and needs to track both creates and updates
-exports.updateNumberOfMembers = createFirestoreFunction(
+// PHASE 2 FIX: Renamed for clarity - handles waiting role subscriptions and admin notifications
+exports.handleWaitingRoleSubscriptions = createFirestoreFunction(
   `/${Collections.statementsSubscribe}/{subscriptionId}`,
   onDocumentWritten,
   onNewSubscription,
-  "updateNumberOfMembers"
+  "handleWaitingRoleSubscriptions"
+);
+
+// Validate role changes to prevent banning admins or creators
+exports.validateRoleChange = createFirestoreFunction(
+  `/${Collections.statementsSubscribe}/{subscriptionId}`,
+  onDocumentUpdated,
+  validateRoleChange,
+  "validateRoleChange"
+);
+
+// Update statement's numberOfMembers count when subscriptions are created/deleted
+exports.updateStatementMemberCount = createFirestoreFunction(
+  `/${Collections.statementsSubscribe}/{subscriptionId}`,
+  onDocumentWritten,
+  updateStatementMemberCount,
+  "updateStatementMemberCount"
 );
 
 // New v2 functions to update statements and subscriptions efficiently

@@ -9,7 +9,7 @@ import { defaultEmptyStatement } from './emptyStatementModel';
 import { getStatementFromDB } from '@/controllers/db/statements/getStatement';
 import { listenToMembers } from '@/controllers/db/statements/listenToStatements';
 import { useAppDispatch, useAppSelector } from '@/controllers/hooks/reduxHooks';
-import { useUserConfig } from '@/controllers/hooks/useUserConfig';
+import { useTranslation } from '@/controllers/hooks/useTranslation';
 import {
 	setStatement,
 	statementSelector,
@@ -21,11 +21,12 @@ import {
 import Loader from '@/view/components/loaders/Loader';
 import { QuestionType, Statement } from 'delib-npm';
 import MassConsensusSettings from './components/massConsensusSettings/MassConsensusSettings';
+import MembersManagement from './components/membership/MembersManagement';
 
 const StatementSettings: FC = () => {
 	// * Hooks * //
 	const { statementId } = useParams();
-	const { t } = useUserConfig();
+	const { t } = useTranslation();
 
 	// * State * //
 	const [parentStatement, setParentStatement] = useState<Statement | 'top'>(
@@ -123,6 +124,7 @@ const StatementSettings: FC = () => {
 						parentStatement={parentStatement}
 						setStatementToEdit={setStatementToEdit}
 					/>
+					<MembersManagement statement={statementToEdit} />
 					{isMassConsensus && <MassConsensusSettings />}
 				</>
 			)}

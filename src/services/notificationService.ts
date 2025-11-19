@@ -1,4 +1,4 @@
-import { getMessaging, getToken, onMessage, deleteToken, Messaging, MessagePayload } from "firebase/messaging";
+import type { Messaging, MessagePayload } from "firebase/messaging";
 import { app, DB } from "@/controllers/db/config";
 import { vapidKey } from "@/controllers/db/configKey";
 import { setDoc, doc, deleteDoc, getDoc, Timestamp, getDocs, query, where, collection, writeBatch } from "firebase/firestore";
@@ -9,6 +9,24 @@ import { removeTokenFromSubscription } from "@/controllers/db/subscriptions/setS
 const isServiceWorkerSupported = () => 'serviceWorker' in navigator;
 // Helper function to check if notifications are supported
 const isNotificationSupported = () => 'Notification' in window;
+
+// Helper function to check if we're on iOS (where Firebase Messaging has limited/no support)
+const isIOS = (): boolean => {
+	const userAgent = navigator.userAgent.toLowerCase();
+	
+return /iphone|ipad|ipod/.test(userAgent) ||
+		   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+};
+
+// Helper to check if Firebase Messaging is supported (not on iOS)
+const isMessagingSupported = (): boolean => {
+	// Firebase Messaging is not supported on iOS browsers
+	if (isIOS()) {
+		return false;
+	}
+	
+return isServiceWorkerSupported() && isNotificationSupported();
+};
 
 // Use the singleton DB instance from config
 const db = DB;
@@ -85,15 +103,23 @@ export class NotificationService {
 	/**
 	 * Initialize Firebase Messaging safely
 	 */
-	private initializeMessaging(): boolean {
+	private async initializeMessaging(): Promise<boolean> {
+		// Don't attempt to initialize Firebase Messaging on iOS
+		if (!isMessagingSupported()) {
+			console.info('[NotificationService] Firebase Messaging not supported on this platform (iOS or missing features)');
+
+			return false;
+		}
+
 		if (!this.isSupported()) {
 			// Browser does not support notifications
-
 			return false;
 		}
 
 		try {
 			if (!this.messaging) {
+				// Dynamically import getMessaging to avoid loading on iOS
+				const { getMessaging } = await import('firebase/messaging');
 				// Create Firebase Messaging instance
 				this.messaging = getMessaging(app);
 			}
@@ -101,11 +127,13 @@ export class NotificationService {
 			return true;
 		} catch (error) {
 			console.error('[NotificationService] Failed to initialize Firebase Messaging:', error);
-			console.error('[NotificationService] Error details:', {
-				name: (error as Error).name,
-				message: (error as Error).message,
-				stack: (error as Error).stack
-			});
+			const err = error as Error;
+			if (err.name && err.message) {
+				console.error('[NotificationService] Error details:', {
+					name: err.name,
+					message: err.message
+				});
+			}
 
 			return false;
 		}
@@ -156,9 +184,9 @@ return;
 
 			// Initialize messaging first
 			// Initialize Firebase Messaging
-			if (!this.initializeMessaging()) {
+			if (!await this.initializeMessaging()) {
 				console.error('[NotificationService] Failed to initialize messaging');
-				
+
 return;
 			}
 
@@ -272,9 +300,9 @@ return null;
 
 		try {
 			// Initialize messaging if not already done
-			if (!this.initializeMessaging()) {
+			if (!await this.initializeMessaging()) {
 				console.error('[NotificationService] Failed to initialize messaging in getOrRefreshToken');
-				
+
 return null;
 			}
 
@@ -292,6 +320,7 @@ return null;
 			// Delete old token if force refresh
 			if (forceRefresh && this.token) {
 				try {
+					const { deleteToken } = await import('firebase/messaging');
 					await deleteToken(this.messaging);
 					// Old token deleted
 				} catch (error) {
@@ -303,11 +332,11 @@ return null;
 			// Get service worker registration
 			const swRegistration = await navigator.serviceWorker.getRegistration();
 			// Check service worker registration
-			
+
 			if (!swRegistration) {
 				console.error('[NotificationService] No service worker registration found!');
-				
-return null;
+
+				return null;
 			}
 
 			// Get token
@@ -320,9 +349,10 @@ return null;
 				console.info('[NotificationService] FCM notifications disabled - VAPID key not configured');
 				console.info('[NotificationService] To enable push notifications, add a valid VAPID key to VITE_FIREBASE_VAPID_KEY in .env');
 
-return null;
+				return null;
 			}
-			
+
+			const { getToken } = await import('firebase/messaging');
 			const currentToken = await getToken(this.messaging, {
 				vapidKey,
 				serviceWorkerRegistration: swRegistration
@@ -350,11 +380,13 @@ return null;
 			}
 		} catch (error) {
 			console.error('[NotificationService] Error getting FCM token:', error);
-			console.error('[NotificationService] Error details:', {
-				name: (error as Error).name,
-				message: (error as Error).message,
-				stack: (error as Error).stack
-			});
+			const err = error as Error;
+			if (err.name && err.message) {
+				console.error('[NotificationService] Error details:', {
+					name: err.name,
+					message: err.message
+				});
+			}
 
 			return null;
 		}
@@ -512,7 +544,8 @@ return false;
 							await deleteDoc(docRef);
 						} catch (error) {
 							// Silently handle if document doesn't exist
-							if (error?.code !== 'permission-denied' && error?.code !== 'not-found') {
+							const err = error as { code?: string };
+							if (err?.code !== 'permission-denied' && err?.code !== 'not-found') {
 								console.error('Error deleting push notification doc:', error);
 							}
 						}
@@ -534,9 +567,14 @@ return false;
 			// Delete local FCM token
 			if (this.messaging && tokenToClean) {
 				cleanupPromises.push(
-					deleteToken(this.messaging)
-						.then(() => undefined)
-						.catch(error => console.error('Error deleting FCM token:', error))
+					(async () => {
+						try {
+							const { deleteToken } = await import('firebase/messaging');
+							await deleteToken(this.messaging);
+						} catch (error) {
+							console.error('Error deleting FCM token:', error);
+						}
+					})()
 				);
 			}
 
@@ -550,24 +588,29 @@ return false;
 	/**
 	 * Set up a listener for foreground messages
 	 */
-	private setupForegroundListener(): void {
+	private async setupForegroundListener(): Promise<void> {
 		if (!this.isSupported() || !this.messaging) {
 			return;
 		}
 
-		onMessage(this.messaging, (payload) => {
-			// Message received in foreground
+		try {
+			const { onMessage } = await import('firebase/messaging');
+			onMessage(this.messaging, (payload) => {
+				// Message received in foreground
 
-			// If we have a notification payload, show it
-			if (payload.notification) {
-				this.showForegroundNotification(payload);
-			}
+				// If we have a notification payload, show it
+				if (payload.notification) {
+					this.showForegroundNotification(payload);
+				}
 
-			// Call the registered handler if one exists
-			if (this.notificationHandler) {
-				this.notificationHandler(payload);
-			}
-		});
+				// Call the registered handler if one exists
+				if (this.notificationHandler) {
+					this.notificationHandler(payload);
+				}
+			});
+		} catch (error) {
+			console.error('[NotificationService] Error setting up foreground listener:', error);
+		}
 	}
 
 	/**
@@ -838,7 +881,8 @@ return;
 			await Promise.allSettled(removePromises);
 		} catch (error) {
 			// Only log non-null value errors
-			if (!error?.message?.includes('Null value error')) {
+			const err = error as { message?: string };
+			if (err?.message && !err.message.includes('Null value error')) {
 				console.error('Error removing token from subscriptions:', error);
 			}
 		}

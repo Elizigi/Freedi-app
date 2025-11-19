@@ -5,7 +5,7 @@ import {
 	FieldValue,
 	getFirestore,
 } from 'firebase-admin/firestore';
-import { FirestoreEvent } from 'firebase-functions/firestore';
+import type { FirestoreEvent } from 'firebase-functions/v2/firestore';
 import {
 	Evaluation,
 	Statement,
@@ -17,9 +17,14 @@ import {
 	ResultsBy,
 	CutoffBy
 } from 'delib-npm';
+import type { PopperHebbianScore } from 'delib-npm/dist/models/popper/popperTypes';
+
+// Extend Statement type to include PopperHebbianScore (it exists but TypeScript doesn't see it during compilation)
+type StatementWithPopper = Statement & { PopperHebbianScore?: PopperHebbianScore };
 
 import { number, parse } from 'valibot';
 import { updateUserDemographicEvaluation } from './fn_polarizationIndex';
+import { calculateConsensusValid } from './helpers/consensusValidCalculator';
 
 // import { getRandomColor } from './helpers';
 // import { user } from 'firebase-functions/v1/auth';
@@ -54,8 +59,7 @@ interface CalcDiff {
 // MAIN EVENT HANDLERS
 // ============================================================================
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function newEvaluation(event: any): Promise<void> {
+export async function newEvaluation(event: FirestoreEvent<DocumentSnapshot>): Promise<void> {
 	try {
 
 		const evaluation = event.data.data() as Evaluation;
@@ -101,8 +105,7 @@ export async function newEvaluation(event: any): Promise<void> {
 	}
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function deleteEvaluation(event: any): Promise<void> {
+export async function deleteEvaluation(event: FirestoreEvent<DocumentSnapshot>): Promise<void> {
 	try {
 		const evaluation = event.data.data() as Evaluation;
 		const { statementId, evaluation: evaluationValue } = evaluation;
@@ -134,8 +137,7 @@ export async function deleteEvaluation(event: any): Promise<void> {
 	}
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function updateEvaluation(event: any): Promise<void> {
+export async function updateEvaluation(event: FirestoreEvent<Change<DocumentSnapshot>>): Promise<void> {
 	try {
 		const before = event.data.before.data() as Evaluation;
 		const after = event.data.after.data() as Evaluation;
@@ -196,6 +198,10 @@ async function updateStatementEvaluation(props: UpdateStatementEvaluationProps):
 		// Calculate pro/con differences
 		const proConDiff = calcDiffEvaluation({ newEvaluation, oldEvaluation, action });
 
+		// Calculate squared evaluation difference for standard deviation tracking
+		// This is the difference in x² values: new² - old²
+		const squaredEvaluationDiff = calcSquaredDiff(newEvaluation, oldEvaluation);
+
 		// Determine if we should actually add an evaluator
 		// Only count as a new evaluator if:
 		// 1. It's a truly new evaluation (action = new AND newEvaluation is not 0)
@@ -212,7 +218,13 @@ async function updateStatementEvaluation(props: UpdateStatementEvaluationProps):
 		}
 
 		// Update statement evaluation
-		await updateStatementInTransaction(statementId, evaluationDiff, actualAddEvaluator, proConDiff);
+		await updateStatementInTransaction(
+			statementId,
+			evaluationDiff,
+			actualAddEvaluator,
+			proConDiff,
+			squaredEvaluationDiff
+		);
 
 		// Return updated statement
 		const statementRef = db.collection(Collections.statements).doc(statementId);
@@ -260,6 +272,8 @@ async function ensureAverageEvaluationForAllOptions(parentId: string): Promise<v
 					agreement: 0,
 					sumPro: 0,
 					sumCon: 0,
+					sumSquaredEvaluations: 0,
+					averageEvaluation: 0,
 					evaluationRandomNumber: Math.random(),
 					viewed: 0,
 				};
@@ -289,7 +303,8 @@ async function updateStatementInTransaction(
 	statementId: string,
 	evaluationDiff: number,
 	addEvaluator: number,
-	proConDiff: CalcDiff
+	proConDiff: CalcDiff,
+	squaredEvaluationDiff: number
 ): Promise<void> {
 	await db.runTransaction(async (transaction) => {
 		const statementRef = db.collection(Collections.statements).doc(statementId);
@@ -320,6 +335,7 @@ async function updateStatementInTransaction(
 					agreement: 0,
 					sumPro: 0,
 					sumCon: 0,
+					sumSquaredEvaluations: 0,
 					averageEvaluation: 0,
 					evaluationRandomNumber: Math.random(),
 					viewed: 0,
@@ -332,13 +348,23 @@ async function updateStatementInTransaction(
 			}
 		}
 
-		const statement = parse(StatementSchema, statementData);
+		const statement = parse(StatementSchema, statementData) as StatementWithPopper;
 
-		const { agreement, evaluation } = calculateEvaluation(statement, proConDiff, evaluationDiff, addEvaluator);
+		const { agreement, evaluation } = calculateEvaluation(
+			statement,
+			proConDiff,
+			evaluationDiff,
+			addEvaluator,
+			squaredEvaluationDiff
+		);
+
+		// Calculate consensusValid by combining consensus with corroborationLevel
+		const consensusValid = calculateConsensusValid(agreement, statement.PopperHebbianScore ?? undefined);
 
 		transaction.update(statementRef, {
 			totalEvaluators: FieldValue.increment(addEvaluator),
 			consensus: agreement,
+			consensusValid,
 			evaluation,
 			proSum: FieldValue.increment(proConDiff.proDiff),
 			conSum: FieldValue.increment(proConDiff.conDiff),
@@ -346,7 +372,21 @@ async function updateStatementInTransaction(
 	});
 }
 
-function calculateEvaluation(statement: Statement, proConDiff: CalcDiff, evaluationDiff: number, addEvaluator: number) {
+/**
+ * Calculates the squared difference for sum of squares tracking
+ * This is used to efficiently track Σxi² for standard deviation calculation
+ */
+function calcSquaredDiff(newEvaluation: number, oldEvaluation: number): number {
+	return (newEvaluation * newEvaluation) - (oldEvaluation * oldEvaluation);
+}
+
+function calculateEvaluation(
+	statement: Statement,
+	proConDiff: CalcDiff,
+	evaluationDiff: number,
+	addEvaluator: number,
+	squaredEvaluationDiff: number
+) {
 	const evaluation = statement.evaluation || {
 		agreement: statement.consensus || 0,
 		sumEvaluations: 0,
@@ -354,6 +394,7 @@ function calculateEvaluation(statement: Statement, proConDiff: CalcDiff, evaluat
 		sumPro: 0,
 		sumCon: 0,
 		averageEvaluation: 0,
+		sumSquaredEvaluations: 0,
 		evaluationRandomNumber: Math.random(),
 		viewed: 0,
 	};
@@ -363,6 +404,8 @@ function calculateEvaluation(statement: Statement, proConDiff: CalcDiff, evaluat
 		evaluation.numberOfEvaluators += addEvaluator;
 		evaluation.sumPro = (evaluation.sumPro || 0) + proConDiff.proDiff;
 		evaluation.sumCon = (evaluation.sumCon || 0) + proConDiff.conDiff;
+		// Track sum of squared evaluations for standard deviation calculation
+		evaluation.sumSquaredEvaluations = (evaluation.sumSquaredEvaluations || 0) + squaredEvaluationDiff;
 		// Ensure averageEvaluation exists even for old data
 		evaluation.averageEvaluation = evaluation.averageEvaluation ?? 0;
 	} else {
@@ -371,14 +414,23 @@ function calculateEvaluation(statement: Statement, proConDiff: CalcDiff, evaluat
 		evaluation.numberOfEvaluators = addEvaluator;
 		evaluation.sumPro = proConDiff.proDiff;
 		evaluation.sumCon = proConDiff.conDiff;
+		evaluation.sumSquaredEvaluations = squaredEvaluationDiff;
 	}
+
+	// Ensure sumSquaredEvaluations is never negative (guard against data inconsistencies)
+	evaluation.sumSquaredEvaluations = Math.max(0, evaluation.sumSquaredEvaluations || 0);
 
 	// Calculate average evaluation
 	evaluation.averageEvaluation = evaluation.numberOfEvaluators > 0
 		? evaluation.sumEvaluations / evaluation.numberOfEvaluators
 		: 0;
 
-	const agreement = calcAgreement(evaluation.sumEvaluations, evaluation.numberOfEvaluators);
+	// Calculate consensus using new Mean - SEM formula
+	const agreement = calcAgreement(
+		evaluation.sumEvaluations,
+		evaluation.sumSquaredEvaluations || 0,
+		evaluation.numberOfEvaluators
+	);
 	evaluation.agreement = agreement;
 
 	return { agreement, evaluation };
@@ -388,16 +440,78 @@ function calculateEvaluation(statement: Statement, proConDiff: CalcDiff, evaluat
 // AGREEMENT CALCULATION LOGIC
 // ============================================================================
 
-function calcAgreement(sumEvaluations: number, numberOfEvaluators: number): number {
+/**
+ * Calculates the standard error of the mean (SEM) for evaluation data
+ * @param sumEvaluations - Sum of all evaluation values
+ * @param sumSquaredEvaluations - Sum of squared evaluation values (Σxi²)
+ * @param numberOfEvaluators - Number of evaluators
+ * @returns Standard Error of the Mean (SEM = σ / √n)
+ */
+function calcStandardError(
+	sumEvaluations: number,
+	sumSquaredEvaluations: number,
+	numberOfEvaluators: number
+): number {
+	if (numberOfEvaluators <= 1) return 0;
+
+	// Calculate mean (μ)
+	const mean = sumEvaluations / numberOfEvaluators;
+
+	// Calculate variance using: Var = (Σxi² / n) - μ²
+	const variance = (sumSquaredEvaluations / numberOfEvaluators) - (mean * mean);
+
+	// Ensure variance is non-negative (floating point errors can cause small negative values)
+	const safeVariance = Math.max(0, variance);
+
+	// Calculate standard deviation: σ = √Var
+	const standardDeviation = Math.sqrt(safeVariance);
+
+	// Calculate SEM: SEM = σ / √n
+	const sem = standardDeviation / Math.sqrt(numberOfEvaluators);
+
+	return sem;
+}
+
+/**
+ * Calculates consensus score using Mean - SEM approach
+ *
+ * This replaces the old heuristic formula (√n × Mean) with a statistically
+ * grounded approach that accounts for both the level of support and the
+ * confidence in that measurement.
+ *
+ * Formula: Score = Mean - SEM
+ * Where:
+ * - Mean = average evaluation score
+ * - SEM = Standard Error of the Mean = σ / √n
+ * - σ = standard deviation
+ *
+ * @param sumEvaluations - Sum of all evaluation values
+ * @param sumSquaredEvaluations - Sum of squared evaluation values (Σxi²)
+ * @param numberOfEvaluators - Number of evaluators
+ * @returns Consensus score (confidence-adjusted agreement)
+ */
+function calcAgreement(
+	sumEvaluations: number,
+	sumSquaredEvaluations: number,
+	numberOfEvaluators: number
+): number {
 	try {
 		parse(number(), sumEvaluations);
+		parse(number(), sumSquaredEvaluations);
 		parse(number(), numberOfEvaluators);
 
-		if (numberOfEvaluators === 0) numberOfEvaluators = 1;
+		// Handle edge case: no evaluators
+		if (numberOfEvaluators === 0) return 0;
 
-		const averageEvaluation = sumEvaluations / numberOfEvaluators;
+		// Calculate mean evaluation
+		const mean = sumEvaluations / numberOfEvaluators;
 
-		return averageEvaluation * Math.sqrt(numberOfEvaluators);
+		// Calculate Standard Error of the Mean (SEM)
+		const sem = calcStandardError(sumEvaluations, sumSquaredEvaluations, numberOfEvaluators);
+
+		// Return confidence-adjusted score: Mean - SEM
+		// This penalizes uncertainty while rewarding reliable consensus
+		return mean - sem;
 	} catch (error) {
 		logger.error('Error calculating agreement:', error);
 
@@ -541,6 +655,7 @@ return;
 			numberOfEvaluators: 0,
 			sumPro: 0,
 			sumCon: 0,
+			sumSquaredEvaluations: 0,
 			averageEvaluation: 0,
 			evaluationRandomNumber: Math.random(),
 			viewed: 0,

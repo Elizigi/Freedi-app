@@ -47,10 +47,24 @@ return false;
 
     if (typeof window !== 'undefined') {
       window.addEventListener('resize', handleResize);
-      
+
 return () => window.removeEventListener('resize', handleResize);
     }
   }, [storageKey, defaultDesktopOpen, defaultMobileOpen]);
+
+  // Listen for custom panelsClose event
+  useEffect(() => {
+    const handlePanelsClose = () => {
+      // Unconditionally close the panel when event is received
+      setIsOpenState(false);
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('panelsClose', handlePanelsClose);
+
+return () => window.removeEventListener('panelsClose', handlePanelsClose);
+    }
+  }, [storageKey]);
 
   const setIsOpen = (value: boolean) => {
     setIsOpenState(value);

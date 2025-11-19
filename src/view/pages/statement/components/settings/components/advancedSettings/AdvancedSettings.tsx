@@ -2,7 +2,7 @@ import { FC, useState, useEffect } from 'react';
 import React from 'react';
 import { StatementSettingsProps } from '../../settingsTypeHelpers';
 import { defaultStatementSettings } from '../../emptyStatementModel';
-import { useUserConfig } from '@/controllers/hooks/useUserConfig';
+import { useTranslation } from '@/controllers/hooks/useTranslation';
 import Checkbox from '@/view/components/checkbox/Checkbox';
 import styles from './AdvancedSettings.module.scss';
 import { setStatementSettingToDB } from '@/controllers/db/statementSettings/setStatementSettings';
@@ -13,7 +13,7 @@ import EvaluationTypeSelector from './EvaluationTypeSelector/EvaluationTypeSelec
 import { setMaxVotesPerUser } from '@/controllers/db/evaluation/setEvaluation';
 
 const AdvancedSettings: FC<StatementSettingsProps> = ({ statement }) => {
-	const { t } = useUserConfig();
+	const { t } = useTranslation();
 
 	// Direct access to settings with defaults - no transformation needed
 	const settings: StatementSettings = statement.statementSettings ?? defaultStatementSettings;
@@ -189,6 +189,13 @@ const AdvancedSettings: FC<StatementSettingsProps> = ({ statement }) => {
 						}
 					/>
 					<Checkbox
+						label={t('Enable user voting/evaluation')}
+						isChecked={settings.enableEvaluation ?? true}
+						onChange={(checked) =>
+							handleSettingChange('enableEvaluation', checked)
+						}
+					/>
+					<Checkbox
 						label='In Voting page, show only the results of the top options'
 						isChecked={settings.inVotingGetOnlyResults ?? false}
 						onChange={(checked) =>
@@ -258,6 +265,20 @@ const AdvancedSettings: FC<StatementSettingsProps> = ({ statement }) => {
 						<p className={styles.helperText}>
 							{t('Transforms discussion into evidence-based Support/Challenge format with weighted scoring and AI-guided idea refinement')}
 						</p>
+						{settings.popperianDiscussionEnabled && (
+							<>
+								<Checkbox
+									label={t('Enable AI Pre-Check for Options')}
+									isChecked={settings.popperianPreCheckEnabled ?? false}
+									onChange={(checked) =>
+										handleSettingChange('popperianPreCheckEnabled', checked)
+									}
+								/>
+								<p className={styles.helperText}>
+									{t('When enabled, AI will help refine and clarify options before they are posted')}
+								</p>
+							</>
+						)}
 					</div>
 				</div>
 			)}

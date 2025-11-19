@@ -1,6 +1,6 @@
 import React, { FC, useState, useEffect } from 'react';
-import { Statement, User } from 'delib-npm';
-import { useUserConfig } from '@/controllers/hooks/useUserConfig';
+import { Statement, User, Role } from 'delib-npm';
+import { useTranslation } from '@/controllers/hooks/useTranslation';
 import SectionTitle from '../sectionTitle/SectionTitle';
 import SettingsModal from '../settingsModal/SettingsModal';
 import MemberReviewList from './memberReviewList/MemberReviewList';
@@ -16,6 +16,7 @@ interface Props {
 export interface MemberReviewData {
 	userId: string;
 	user: User;
+	role?: Role;
 	responses: {
 		questionId: string;
 		question: string;
@@ -28,7 +29,7 @@ export interface MemberReviewData {
 }
 
 const MemberValidation: FC<Props> = ({ statement }) => {
-	const { t } = useUserConfig();
+	const { t } = useTranslation();
 	const [showModal, setShowModal] = useState(false);
 	const [members, setMembers] = useState<MemberReviewData[]>([]);
 	const [loading, setLoading] = useState(false);
@@ -170,6 +171,7 @@ return member.status === filter;
 								members={filteredMembers}
 								onMemberAction={handleMemberAction}
 								statementId={statement.statementId}
+								statement={statement}
 								onRefresh={loadMemberResponses}
 							/>
 						)}

@@ -15,6 +15,7 @@ import {
 	listenToUserDemographicQuestions,
 } from '@/controllers/db/userDemographic/getUserDemographic';
 import { store } from '@/redux/store';
+import { listenerManager } from '@/controllers/utils/ListenerManager';
 
 interface UseStatementListenersProps {
 	statementId?: string;
@@ -37,10 +38,23 @@ export const useStatementListeners = ({
 }: UseStatementListenersProps) => {
 	const { creator } = useAuthentication();
 	const unsubscribersRef = useRef<(() => void)[]>([]);
+	const previousStatementIdRef = useRef<string | undefined>();
+
+	// Reset listener stats when navigating to a different statement
+	useEffect(() => {
+		if (statementId && statementId !== previousStatementIdRef.current) {
+			listenerManager.resetStats();
+			previousStatementIdRef.current = statementId;
+		}
+	}, [statementId]);
 
 	// Effect for main statement listening
 	useEffect(() => {
 		if (!creator || !statementId) return;
+
+		// Use the screen parameter from props - more reliable than reading from window.location
+		// Fallback to getScreenFromPath if screen is not provided
+		const currentScreen = screen || getScreenFromPath();
 
 		const cleanup = () => {
 			unsubscribersRef.current.forEach((unsubscribe) => {
@@ -72,9 +86,13 @@ export const useStatementListeners = ({
 			);
 
 			// Conditional listeners based on screen
-			const currentScreen = getScreenFromPath();
 			if (currentScreen === 'mind-map') {
-				unsubscribersRef.current.push(listenToAllDescendants(statementId));
+				// For MindMap, we need BOTH direct children (parentId) AND all descendants (parents array)
+				// This ensures we capture all sub-statements regardless of data structure
+				unsubscribersRef.current.push(
+					listenToAllDescendants(statementId),  // Gets descendants via parents array
+					listenToSubStatements(statementId)     // Gets direct children via parentId
+				);
 			} else {
 				unsubscribersRef.current.push(listenToSubStatements(statementId));
 			}

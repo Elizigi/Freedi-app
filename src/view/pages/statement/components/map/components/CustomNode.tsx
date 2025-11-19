@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 // Third party
 import { useNavigate } from 'react-router';
-import { Handle, NodeProps, useStore } from 'reactflow';
+import { Handle, NodeProps, useReactFlow } from 'reactflow';
+import clsx from 'clsx';
 // Hooks
-// Styles
-import '../mapHelpers/reactFlow.scss';
 // Icons
 import EllipsisIcon from '@/assets/icons/ellipsisIcon.svg?react';
-import PlusIcon from '@/assets/icons/plusIcon.svg?react';
+import AddChildIcon from '@/assets/icons/addChildIcon.svg?react';
+import AddSiblingIcon from '@/assets/icons/addSiblingIcon.svg?react';
 // Statements functions
 import { updateStatementText } from '@/controllers/db/statements/setStatements';
 import { statementTitleToDisplay } from '@/controllers/general/helpers';
@@ -15,6 +15,8 @@ import { useMapContext } from '@/controllers/hooks/useMap';
 import useStatementColor from '@/controllers/hooks/useStatementColor';
 import { Statement, StatementType } from 'delib-npm';
 import NodeMenu from './nodeMenu/NodeMenu';
+// Styles
+import styles from './CustomNode.module.scss';
 
 const nodeStyle = (statementColor: {
 	backgroundColor: string;
@@ -44,6 +46,10 @@ function CustomNode({ data }: NodeProps) {
 	const { result, parentStatement, dimensions } = data;
 	const { statementId, statement } = result.top as Statement;
 
+	// Get zoom from React Flow
+	const { getZoom } = useReactFlow();
+	const zoom = getZoom();
+
 	const { mapContext, setMapContext } = useMapContext();
 	const selectedId = mapContext?.selectedId ?? null;
 	const showBtns = selectedId === statementId;
@@ -64,14 +70,11 @@ function CustomNode({ data }: NodeProps) {
 		setLocalStatement(result.top);
 	}, [isVoted, isChosen, statementType]);
 
-	// Get zoom level from React Flow store
-	const zoom = useStore((state) => state.transform[2]);
-
-	// Create refs for buttons that need fixed sizing
-	const addChildRef = useRef(null);
-	const addSiblingRef = useRef(null);
-	const menuButtonRef = useRef(null);
-	const menuContainerRef = useRef(null);
+	// Create refs for the buttons that need scaling
+	const addChildRef = useRef<HTMLButtonElement>(null);
+	const addSiblingRef = useRef<HTMLButtonElement>(null);
+	const menuButtonRef = useRef<HTMLButtonElement>(null);
+	const menuContainerRef = useRef<HTMLDivElement>(null);
 
 	const getNodeWidth = () => {
 		if (isEdit && wordLength) {
@@ -92,7 +95,7 @@ function CustomNode({ data }: NodeProps) {
 		minHeight: 'auto',
 	};
 
-	// Apply inverse scale to buttons when zoom changes
+	// Apply inverse scale to buttons when zoom changes to maintain ~32px size
 	useEffect(() => {
 		if (zoom && showBtns) {
 			const scale = 1 / zoom; // Inverse scaling factor
@@ -116,11 +119,16 @@ function CustomNode({ data }: NodeProps) {
 			if (menuContainerRef.current) {
 				// Scale the menu container
 				menuContainerRef.current.style.transform = `scale(${scale})`;
-				// Set transform origin to bottom right to maintain position
-				menuContainerRef.current.style.transformOrigin = 'bottom right';
+				// Set transform origin based on orientation to avoid hiding buttons
+				if (mapContext.direction === 'TB') {
+					menuContainerRef.current.style.transformOrigin = 'bottom right';
+				} else {
+					// In horizontal mode, position menu on the left to avoid top-center sibling button
+					menuContainerRef.current.style.transformOrigin = 'top right';
+				}
 			}
 		}
-	}, [zoom, showBtns, showMenu]);
+	}, [zoom, showBtns, showMenu, mapContext.direction]);
 
 	//effects
 	//close menu every time a node is selected
@@ -190,12 +198,15 @@ function CustomNode({ data }: NodeProps) {
 	}
 
 	return (
-		<div className={`node__container`}>
+		<div className={styles.nodeContainer}>
 			<button
 				onDoubleClick={handleNodeDoubleClick}
 				onClick={handleNodeClick}
 				data-id={statementId}
-				className={`node__content ${data.animate ? 'tremble-animate' : ''}`}
+				className={clsx(
+					styles.nodeContent,
+					data.animate && styles.trembleAnimate
+				)}
 				style={{
 					...dynamicNodeStyle,
 					textAlign: 'center',
@@ -214,49 +225,51 @@ function CustomNode({ data }: NodeProps) {
 				)}
 			</button>
 			{showBtns && (
-				<>
+				<div className={styles.nodeActions}>
 					{canAddChild && (
-						<button
-							className='addIcon'
-							onClick={handleAddChildNode}
-							aria-label='Add child node'
-							ref={addChildRef}
-							style={{
-								position: 'absolute',
-								cursor: 'pointer',
-								right:
-									mapContext.direction === 'TB'
-										? 'calc(50% - 0.5rem)'
-										: '-.8rem',
-								bottom:
-									mapContext.direction === 'TB'
-										? '-.8rem'
-										: 'calc(50% - 0.5rem)',
-							}}
-						>
-							<PlusIcon />
-						</button>
+						<>
+							<button
+								className='addIcon'
+								onClick={handleAddChildNode}
+								aria-label='Add child node'
+								ref={addChildRef}
+								style={{
+									position: 'absolute',
+									cursor: 'pointer',
+									right:
+										mapContext.direction === 'TB'
+											? 'calc(50% - 16px)'
+											: '-16px',
+									bottom:
+										mapContext.direction === 'TB'
+											? '-16px'
+											: 'calc(50% - 16px)',
+								}}
+							>
+								<AddChildIcon />
+							</button>
+							<button
+								className='addIcon'
+								onClick={handleAddSiblingNode}
+								aria-label='Add sibling node'
+								ref={addSiblingRef}
+								style={{
+									position: 'absolute',
+									cursor: 'pointer',
+									left:
+										mapContext.direction === 'TB'
+											? '-16px'
+											: 'calc(50% - 16px)',
+									top:
+										mapContext.direction === 'TB'
+											? 'calc(50% - 16px)'
+											: '-16px',
+								}}
+							>
+								<AddSiblingIcon />
+							</button>
+						</>
 					)}
-					<button
-						className='addIcon'
-						onClick={handleAddSiblingNode}
-						aria-label='Add sibling node'
-						ref={addSiblingRef}
-						style={{
-							position: 'absolute',
-							cursor: 'pointer',
-							left:
-								mapContext.direction === 'TB'
-									? '-.5rem'
-									: 'calc(50% - 0.5rem)',
-							top:
-								mapContext.direction === 'TB'
-									? 'calc(50% - 0.5rem)'
-									: '-.8rem',
-						}}
-					>
-						<PlusIcon />
-					</button>
 					<button
 						aria-label='open settings menu'
 						className='addIcon'
@@ -265,8 +278,8 @@ function CustomNode({ data }: NodeProps) {
 						style={{
 							position: 'absolute',
 							cursor: 'pointer',
-							right: '-.5rem',
-							top: '-.5rem',
+							right: '-16px',
+							top: '-16px',
 						}}
 					>
 						<EllipsisIcon />
@@ -277,10 +290,12 @@ function CustomNode({ data }: NodeProps) {
 							style={{
 								position: 'absolute',
 								cursor: 'pointer',
-								right: '0',
-								bottom: '100%',
-								marginBottom: '10px', // Fixed distance regardless of zoom
-								transformOrigin: 'bottom right',
+								right: mapContext.direction === 'TB' ? '0' : 'auto',
+								left: mapContext.direction === 'LR' ? '0' : 'auto',
+								bottom: mapContext.direction === 'TB' ? '100%' : 'auto',
+								top: mapContext.direction === 'LR' ? '100%' : 'auto',
+								marginBottom: mapContext.direction === 'TB' ? '10px' : '0',
+								marginTop: mapContext.direction === 'LR' ? '10px' : '0',
 								zIndex: 999, // Ensure menu appears above other elements
 							}}
 						>
@@ -294,7 +309,7 @@ function CustomNode({ data }: NodeProps) {
 							/>
 						</div>
 					)}
-				</>
+				</div>
 			)}
 			<Handle type='target' position={mapContext.targetPosition} />
 			<Handle type='source' position={mapContext.sourcePosition} />

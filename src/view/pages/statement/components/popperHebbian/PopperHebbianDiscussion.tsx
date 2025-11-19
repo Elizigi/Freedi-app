@@ -2,7 +2,7 @@ import { FC, useState, useEffect } from 'react';
 import { Statement } from 'delib-npm';
 import { PopperHebbianScore } from '@/models/popperHebbian/ScoreModels';
 import { listenToEvidencePosts } from '@/controllers/db/popperHebbian/evidenceController';
-import { useUserConfig } from '@/controllers/hooks/useUserConfig';
+import { useTranslation } from '@/controllers/hooks/useTranslation';
 import IdeaScoreboard from './components/IdeaScoreboard/IdeaScoreboard';
 import EvidencePost from './components/EvidencePost/EvidencePost';
 import AddEvidenceModal from './components/AddEvidenceModal/AddEvidenceModal';
@@ -18,15 +18,17 @@ const PopperHebbianDiscussion: FC<PopperHebbianDiscussionProps> = ({
 	statement,
 	onCreateImprovedVersion
 }) => {
-	const { t } = useUserConfig();
+	const { t } = useTranslation();
 	const [evidencePosts, setEvidencePosts] = useState<Statement[]>([]);
 	const [showAddEvidenceModal, setShowAddEvidenceModal] = useState(false);
 	const [isLoading, setIsLoading] = useState(true);
 
 	// Get score from statement, or create a default one
-	const score = (statement as Statement & { popperHebbianScore?: PopperHebbianScore }).popperHebbianScore || {
+	const score: PopperHebbianScore = (statement as Statement & { popperHebbianScore?: PopperHebbianScore }).popperHebbianScore || {
 		statementId: statement.statementId,
 		totalScore: 0,
+		corroborationLevel: 0.5,
+		evidenceCount: 0,
 		status: 'under-discussion' as const,
 		lastCalculated: Date.now()
 	};

@@ -1,4 +1,3 @@
-import { listenToDescendants } from '@/controllers/db/results/getResults';
 import {
 	statementDescendantsSelector,
 	statementSelector,
@@ -9,6 +8,7 @@ import { useParams } from 'react-router';
 import { resultsByParentId } from './mapCont';
 import { Statement, Results } from 'delib-npm';
 import { APIEndPoint, isChatMessage } from '@/controllers/general/helpers';
+import { logError } from '@/utils/errorHandling';
 
 export function useMindMap(statementIdPassed: string | null = null) {
 	const { statementId: paramsStatement } = useParams();
@@ -30,19 +30,10 @@ export function useMindMap(statementIdPassed: string | null = null) {
 	// Initialize results state properly
 	const [results, setResults] = useState<Results | null>(null);
 
-	// Get descendants
-	useEffect(() => {
-		if (!statementId) return;
+	// REMOVED: Duplicate listener - descendants are now loaded by useStatementListeners hook
+	// when screen is 'mind-map', which calls listenToAllDescendants()
+	// This ensures all sub-statements are loaded correctly on direct navigation
 
-		const unsubscribe = listenToDescendants(statementId);
-
-		return () => {
-			unsubscribe();
-		};
-	}, [statementId]);
-	// REMOVED: Individual evaluation listeners for each descendant
-	// This caused excessive Firestore requests (one listener per descendant)
-	// Evaluations are now handled centrally in useStatementListeners
 	useEffect(() => {
 		setFlat(isFlat(descendants, statementId));
 	}, [descendants.length, statementId]);
@@ -80,7 +71,11 @@ export function useMindMap(statementIdPassed: string | null = null) {
 					: newResults;
 			});
 		} catch (error) {
-			console.error('Error calculating results:', error);
+			logError(error, {
+				operation: 'useMindMap.calculateResults',
+				statementId: statement?.statementId,
+				metadata: { descendantsCount: descendants?.length }
+			});
 		}
 	}, [descendants, statement]);
 
@@ -97,7 +92,10 @@ export function useMindMap(statementIdPassed: string | null = null) {
 			},
 		})
 			.catch((error) => {
-				console.error('Error fetching cluster data:', error);
+				logError(error, {
+					operation: 'useMindMap.handleCluster',
+					statementId
+				});
 			})
 			.finally(() => {
 				setLoading(false);
@@ -115,7 +113,10 @@ export function useMindMap(statementIdPassed: string | null = null) {
 			},
 		})
 			.catch((error) => {
-				console.error('Error fetching recover snapshot data:', error);
+				logError(error, {
+					operation: 'useMindMap.handleRecoverSnapshot',
+					metadata: { snapshotId: statementId }
+				});
 			})
 			.finally(() => {
 				setLoading(false);

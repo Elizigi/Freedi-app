@@ -244,23 +244,43 @@ service cloud.firestore {
       function isRoleUnchanged() {
         return request.resource.data.role == resource.data.role;
       }
-      
+
+      function isTargetAdmin() {
+        // Check if the target subscription (being updated) has admin or creator role
+        return resource != null && (resource.data.role == "admin" || resource.data.role == "statement-creator");
+      }
+
+      function isTargetStatementCreator() {
+        // Check if the target user is the statement creator
+        let statementId = getStatementId();
+        let statement = get(/databases/$(database)/documents/statements/$(statementId)).data;
+        return resource != null && statement != null && statement.creatorId == resource.data.userId;
+      }
+
+      function isTryingToBanProtectedUser() {
+        // Prevent changing admin/creator roles to banned
+        return request.resource.data.role == "banned" &&
+               resource.data.role != "banned" &&
+               (isTargetAdmin() || isTargetStatementCreator());
+      }
+
       allow read: if request.auth.uid != null;
-      
+
       // For create
       allow create: if request.auth.uid != null &&
                      (isPublic() ||
-                      isOpenToAll() || 
+                      isOpenToAll() ||
                       isOpenForRegistered() ||
                       (isModerated() && isWaitingRole()));
-      
+
       // For update
-      allow update: if request.auth.uid != null && 
+      allow update: if request.auth.uid != null &&
+                     !isTryingToBanProtectedUser() &&
                      (isAdminOrCreator() ||
-                      (isSubscriber() && 
+                      (isSubscriber() &&
                         (isRoleUnchanged() ||
-                          (!isBanned() && 
-                            ((isModerated() && isWaitingRole()) || 
+                          (!isBanned() &&
+                            ((isModerated() && isWaitingRole()) ||
                              ((isPublic() || isOpenToAll() || isOpenForRegistered()) && isMemberRole())))
                         )
                       ));
@@ -346,6 +366,26 @@ service cloud.firestore {
     match /evaluations/{evluationId=**} {
       allow read: if request.auth.uid != null;
       allow write: if request.auth.uid != null;
+    }
+
+    match /userEvaluations/{documentId} {
+      // Users can read their own evaluation tracking or if they're an anonymous user
+      allow read: if request.auth != null ||
+        (resource != null && resource.data.userId != null);
+
+      // Users can create their own evaluation tracking document
+      allow create: if request.auth != null ||
+        (request.resource.data.userId != null &&
+         request.resource.data.parentStatementId != null);
+
+      // Users can update their own evaluation tracking
+      // For anonymous users, check that the userId matches what's in the document
+      allow update: if request.auth != null ||
+        (resource != null &&
+         resource.data.userId == request.resource.data.userId);
+
+      // Prevent deletion to maintain history
+      allow delete: if false;
     }
 
     match /approval/{approvalId=**} {

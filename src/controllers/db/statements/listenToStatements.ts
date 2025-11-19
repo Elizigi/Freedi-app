@@ -9,6 +9,7 @@ import {
 	query,
 	where,
 } from 'firebase/firestore';
+import { logError } from '@/utils/errorHandling';
 
 // Redux Store
 import { FireStore } from '../config';
@@ -26,7 +27,6 @@ import {
 	Role,
 	Collections,
 	StatementType,
-	DeliberativeElement,
 	Statement,
 	StatementSchema,
 	Creator,
@@ -61,7 +61,11 @@ export const listenToStatementSubscription = (
 			docId
 		);
 
-		return createManagedDocumentListener(
+		// Track if we've already handled the error to prevent infinite loops
+		let errorHandled = false;
+		let unsubscribeFn: Unsubscribe | null = null;
+
+		const listener = createManagedDocumentListener(
 			statementsSubscribeRef,
 			listenerKey,
 			(statementSubscriptionDB) => {
@@ -94,16 +98,29 @@ export const listenToStatementSubscription = (
 				}
 			},
 			(error) => {
+				// Prevent infinite loops by only handling the error once
+				if (errorHandled) return;
+				errorHandled = true;
+
 				// Handle permission errors more gracefully
-				if (error.code === 'permission-denied') {
-					console.info('User does not have permission to access this statement subscription');
+				const err = error as { code?: string };
+				if (err?.code === 'permission-denied') {
+					// Permission denied is expected for some users, handle silently
 					if (setHasSubscription) setHasSubscription(false);
-					// Don't log as error, this is expected for some users
+					// Unsubscribe immediately to prevent repeated error callbacks
+					if (unsubscribeFn) {
+						unsubscribeFn();
+					}
 				} else {
 					console.error('Error in statement subscription listener:', error);
 				}
 			}
 		);
+
+		// Store the unsubscribe function so we can call it from the error handler
+		unsubscribeFn = listener;
+
+		return listener;
 	} catch (error) {
 		console.error(error);
 
@@ -253,7 +270,8 @@ export const listenToMembers =
 				membersRef,
 				where('statementId', '==', statementId),
 				where('statement.statementType', '!=', StatementType.document),
-				orderBy('createdAt', 'desc')
+				orderBy('createdAt', 'desc'),
+				limit(10) // Load only last 10 members initially, more can be loaded on demand
 			);
 
 			const listenerKey = generateListenerKey(
@@ -492,25 +510,21 @@ export const listenToUserSuggestions = (
 export function listenToAllDescendants(statementId: string): Unsubscribe {
 	try {
 		const statementsRef = collection(FireStore, Collections.statements);
+		// Query ONLY for questions, groups, and options (not any other types)
+		// Wrap in and() as required by Firestore for composite filters
+		// REMOVED LIMIT - now loads all descendants for completeness
 		const q = query(
 			statementsRef,
 			and(
+				where('parents', 'array-contains', statementId),
 				or(
-					where(
-						'deliberativeElement',
-						'==',
-						DeliberativeElement.option
-					),
-					where(
-						'deliberativeElement',
-						'==',
-						DeliberativeElement.research
-					)
-				),
-				where('parents', 'array-contains', statementId)
-			),
-			// Increase performance by limiting batch size
-			limit(50)
+					where('statementType', '==', StatementType.question),
+					where('statementType', '==', StatementType.group),
+					where('statementType', '==', StatementType.option)
+				)
+			)
+			// NOTE: Removed limit(50) to ensure all descendants are loaded
+			// For very large trees, consider implementing pagination in the UI layer
 		);
 
 		const listenerKey = generateListenerKey(
@@ -522,6 +536,7 @@ export function listenToAllDescendants(statementId: string): Unsubscribe {
 		// Use batched updates for better performance
 		let isFirstBatch = true;
 		const statements: Statement[] = [];
+		let loadedCount = 0;
 
 		return createManagedCollectionListener(
 			q,
@@ -530,34 +545,72 @@ export function listenToAllDescendants(statementId: string): Unsubscribe {
 				if (isFirstBatch) {
 					// Process the initial batch of statements all at once
 					statementsDB.forEach((doc) => {
-						const statement = parse(StatementSchema, doc.data());
-						statements.push(statement);
+						try {
+							const statement = parse(StatementSchema, doc.data());
+							statements.push(statement);
+							loadedCount++;
+						} catch (error) {
+							logError(error, {
+								operation: 'listenToAllDescendants.parseInitial',
+								statementId: doc.id,
+								metadata: {
+									parentStatementId: statementId,
+									loadedCount
+								}
+							});
+						}
 					});
 
 					// Dispatch all statements at once instead of one by one
 					if (statements.length > 0) {
 						store.dispatch(setStatements(statements));
+						console.info(`[listenToAllDescendants] Loaded ${statements.length} descendants for statement ${statementId}`);
 					}
 
 					isFirstBatch = false;
 				} else {
 					// After initial load, process changes individually
-					statementsDB.docChanges().forEach((change) => {
-						const statement = parse(StatementSchema, change.doc.data());
+					const changes = statementsDB.docChanges();
 
-						if (change.type === 'added' || change.type === 'modified') {
-							store.dispatch(setStatement(statement));
-						} else if (change.type === 'removed') {
-							store.dispatch(deleteStatement(statement.statementId));
+					changes.forEach((change) => {
+						try {
+							const statement = parse(StatementSchema, change.doc.data());
+
+							if (change.type === 'added' || change.type === 'modified') {
+								store.dispatch(setStatement(statement));
+							} else if (change.type === 'removed') {
+								store.dispatch(deleteStatement(statement.statementId));
+							}
+						} catch (error) {
+							logError(error, {
+								operation: 'listenToAllDescendants.processChange',
+								statementId: change.doc.id,
+								metadata: {
+									parentStatementId: statementId,
+									changeType: change.type,
+									loadedCount
+								}
+							});
 						}
 					});
 				}
 			},
-			(error) => console.error('Error in all descendants listener:', error),
+			(error) => {
+				logError(error, {
+					operation: 'listenToAllDescendants.listener',
+					metadata: {
+						parentStatementId: statementId,
+						loadedCount
+					}
+				});
+			},
 			'query'
 		);
 	} catch (error) {
-		console.error(error);
+		logError(error, {
+			operation: 'listenToAllDescendants.setup',
+			metadata: { parentStatementId: statementId }
+		});
 
 		return (): void => {
 			return;

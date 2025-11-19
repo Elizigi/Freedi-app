@@ -4,18 +4,20 @@ import { evaluationSelector } from '@/redux/evaluations/evaluationsSlice';
 import Thumb from '@/view/components/thumb/Thumb';
 import styles from './SimpleEvaluation.module.scss';
 import { Statement } from 'delib-npm';
-import { useUserConfig } from '@/controllers/hooks/useUserConfig';
+import { useTranslation } from '@/controllers/hooks/useTranslation';
 
 interface Props {
 	statement: Statement;
 	shouldDisplayScore?: boolean;
+	enableEvaluation?: boolean;
 }
 
 const SimpleEvaluation: FC<Props> = ({
 	statement,
 	shouldDisplayScore = true,
+	enableEvaluation = true,
 }) => {
-	const { rowDirection } = useUserConfig();
+	const { rowDirection } = useTranslation();
 
 	const initialContVotesCount = statement.con ?? 0;
 	const initialProVotesCount = statement.pro ?? 0;
@@ -54,6 +56,7 @@ const SimpleEvaluation: FC<Props> = ({
 						statement={statement}
 						setConVote={setConVotesCount}
 						setProVote={setProVotesCount}
+						enableEvaluation={enableEvaluation}
 					/>
 				</div>
 				<div className={styles.thumbIcon}>
@@ -63,6 +66,7 @@ const SimpleEvaluation: FC<Props> = ({
 						statement={statement}
 						setProVote={setProVotesCount}
 						setConVote={setConVotesCount}
+						enableEvaluation={enableEvaluation}
 					/>
 				</div>
 				{shouldDisplayScore && <span>{proVotesCount}</span>}
