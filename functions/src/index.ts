@@ -60,6 +60,12 @@ import {
   addMemberToMassConsensus,
 } from "./fn_massConsensus";
 import { addFeedback } from "./fn_feedback";
+import {
+  addEmailSubscriber,
+  sendEmailToSubscribers,
+  getEmailSubscriberCount,
+  unsubscribeEmail,
+} from "./fn_emailNotifications";
 import { getCluster, recoverLastSnapshot } from "./fn_clusters";
 import { checkProfanity } from "./fn_profanityChecker";
 import { handleImproveSuggestion } from "./fn_improveSuggestion";
@@ -72,6 +78,16 @@ import { refineIdea } from "./fn_popperHebbian_refineIdea";
 import { onEvidencePostCreate, onEvidencePostUpdate } from "./fn_popperHebbian_onEvidencePost";
 import { onVoteUpdate } from "./fn_popperHebbian_onVote";
 import { summarizeLink } from "./fn_popperHebbian_summarizeLink";
+import { improveProposalWithAI } from "./fn_popperHebbian_improveProposal";
+
+// Room Assignment functions
+import {
+  createRoomAssignments,
+  notifyRoomParticipants,
+  getRoomAssignments,
+  getMyRoomAssignment,
+  deleteRoomAssignments,
+} from "./fn_roomAssignment";
 
 // Initialize Firebase only if not already initialized
 if (!getApps().length) {
@@ -107,6 +123,7 @@ const corsConfig = isProduction
       "https://freedi-test.web.app",
       "https://delib-5.web.app",
       "https://delib.web.app",
+      "https://wizcol-app.web.app",
     ]
   : [
       "http://localhost:5173",
@@ -204,6 +221,12 @@ exports.massConsensusGetInitialData = wrapHttpFunction(getInitialMCData);
 exports.getQuestionOptions = wrapHttpFunction(getQuestionOptions);
 exports.massConsensusAddMember = wrapHttpFunction(addMassConsensusMember);
 exports.addFeedback = wrapHttpFunction(addFeedback);
+
+// Email notification functions
+exports.addEmailSubscriber = wrapHttpFunction(addEmailSubscriber);
+exports.sendEmailToSubscribers = wrapHttpFunction(sendEmailToSubscribers);
+exports.getEmailSubscriberCount = wrapHttpFunction(getEmailSubscriberCount);
+exports.unsubscribeEmail = wrapHttpFunction(unsubscribeEmail);
 exports.getCluster = wrapHttpFunction(getCluster);
 exports.recoverLastSnapshot = wrapHttpFunction(recoverLastSnapshot);
 exports.checkProfanity = checkProfanity;
@@ -432,3 +455,11 @@ exports.onEvidencePostCreate = onEvidencePostCreate;
 exports.onEvidencePostUpdate = onEvidencePostUpdate;
 exports.onVoteUpdate = onVoteUpdate;
 exports.summarizeLink = summarizeLink;
+exports.improveProposalWithAI = improveProposalWithAI;
+
+// Room Assignment functions
+exports.createRoomAssignments = wrapHttpFunction(createRoomAssignments);
+exports.notifyRoomParticipants = wrapHttpFunction(notifyRoomParticipants);
+exports.getRoomAssignments = wrapHttpFunction(getRoomAssignments);
+exports.getMyRoomAssignment = wrapHttpFunction(getMyRoomAssignment);
+exports.deleteRoomAssignments = wrapHttpFunction(deleteRoomAssignments);

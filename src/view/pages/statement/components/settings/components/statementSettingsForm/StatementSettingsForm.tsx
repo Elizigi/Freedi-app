@@ -30,6 +30,7 @@ import MembershipSettings from '../membershipSettings/MembershipSettings';
 import UserDemographicSetting from '../UserDemographicSettings/UserDemographicSetting';
 import MembersSettings from '../membership/MembersSettings';
 import MemberValidation from '../memberValidation/MemberValidation';
+import EmailNotifications from '../emailNotifications/EmailNotifications';
 
 interface StatementSettingsFormProps {
 	statement: Statement;
@@ -145,8 +146,9 @@ const StatementSettingsForm: FC<StatementSettingsFormProps> = ({
 						<MembersSettings statement={statement} />
 						{statement.statementType === StatementType.question && <ChoseBySettings {...statementSettingsProps} />}
 						<QuestionSettings {...statementSettingsProps} />
-						{isQuestion && <UserDemographicSetting statement={statement} />}
+						<UserDemographicSetting statement={statement} />
 						{isQuestion && <MemberValidation statement={statement} />}
+						<EmailNotifications statement={statement} />
 						<SectionTitle title={t('Members')} />
 						<section className={styles.getMembersArea}>
 							<GetVoters
