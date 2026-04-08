@@ -1,33 +1,45 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { Statement } from 'delib-npm';
+import { useState, useEffect, useRef } from 'react';
+import { Statement } from '@freedi/shared-types';
+import { MergedQuestionSettings } from '@/lib/utils/settingsUtils';
 import { getOrCreateAnonymousUser } from '@/lib/utils/user';
 import { ToastProvider } from '@/components/shared/Toast';
 import SolutionCard from './SolutionCard';
+import SocialFeed from './SocialFeed';
 import SolutionPromptModal from './SolutionPromptModal';
 import CompletionScreen from '@/components/completion/CompletionScreen';
 import styles from './SolutionFeed.module.css';
 import { useTranslation } from '@freedi/shared-i18n/next';
+import { logError } from '@/lib/utils/errorHandling';
+import { getParagraphsText } from '@/lib/utils/paragraphUtils';
+import {
+  trackPageView,
+  trackEvaluation,
+  trackNewBatchRequest,
+  trackAddSolutionClick,
+} from '@/lib/analytics';
 
 interface SolutionFeedClientProps {
   question: Statement;
   initialSolutions: Statement[];
+  /** Merged settings for this question (survey + per-question overrides) */
+  mergedSettings?: MergedQuestionSettings;
 }
 
 /**
- * Client Component - Interactive solution feed
- * Handles batch loading, evaluations, and user interactions
- * Inspired by RandomSuggestions.tsx
+ * Client Component - Classic 6-card list view for solution evaluation
+ * Shows all solutions in a scrollable list with inline rating buttons
  */
 export default function SolutionFeedClient({
   question,
   initialSolutions,
+  mergedSettings,
 }: SolutionFeedClientProps) {
   const { t, tWithParams } = useTranslation();
   const [solutions, setSolutions] = useState<Statement[]>(initialSolutions);
   const [userId, setUserId] = useState<string>('');
-  const [evaluatedIds, setEvaluatedIds] = useState<Set<string>>(new Set());
+  const [evaluationScores, setEvaluationScores] = useState<Map<string, number>>(new Map());
   const [allEvaluatedIds, setAllEvaluatedIds] = useState<Set<string>>(new Set());
   const [isLoadingBatch, setIsLoadingBatch] = useState(false);
   const [batchCount, setBatchCount] = useState(1);
@@ -36,39 +48,88 @@ export default function SolutionFeedClient({
   const [showSolutionPrompt, setShowSolutionPrompt] = useState(false);
   const [hasCheckedUserSolutions, setHasCheckedUserSolutions] = useState(false);
   const [showCompletionScreen, setShowCompletionScreen] = useState(false);
-  const [hasShownCompletionScreen, setHasShownCompletionScreen] = useState(false);
   const [hasSubmittedSolution, setHasSubmittedSolution] = useState(false);
+  const [userSolutionCount, setUserSolutionCount] = useState(0);
   const [participantCount, setParticipantCount] = useState(0);
+  const hasTrackedPageView = useRef(false);
+  const userIdRef = useRef<string>('');
 
   const questionId = question.statementId;
   const totalOptionsCount = question.numberOfOptions || 0;
-  // Type assertion needed as this property may not be in older delib-npm types
-  const questionSettings = question.questionSettings as { askUserForASolutionBeforeEvaluation?: boolean } | undefined;
-  const requiresSolution = questionSettings?.askUserForASolutionBeforeEvaluation || false;
 
-  // Check if user has submitted solutions (for "require solution first" feature)
+  // Use merged settings for "ask for suggestion before evaluation"
+  const questionSettingsLegacy = question.questionSettings as { askUserForASolutionBeforeEvaluation?: boolean } | undefined;
+  const requiresSolution = mergedSettings?.askUserForASolutionBeforeEvaluation ??
+    questionSettingsLegacy?.askUserForASolutionBeforeEvaluation ?? true;
+
+  console.info('[SolutionFeed Debug] Settings check:', {
+    mergedSettings: mergedSettings?.askUserForASolutionBeforeEvaluation,
+    questionSettingsLegacy: questionSettingsLegacy?.askUserForASolutionBeforeEvaluation,
+    finalRequiresSolution: requiresSolution
+  });
+
+  // Check if we're in survey context (to hide bottomContainer)
+  const inSurveyContext = !!mergedSettings;
+
+  // Check if solutions array is empty
+  const hasNoSolutions = solutions.length === 0;
+
+  // Check if participants can add suggestions
+  const canAddSuggestions = hasNoSolutions || (mergedSettings?.allowParticipantsToAddSuggestions ?? true);
+
+  // Check if view progress button should be shown (admin per-question setting, defaults to true)
+  const showViewProgressEnabled = mergedSettings?.showViewProgress !== false;
+
+  // Ask user for solution after minimum evaluations
+  const askAfterEvaluation = mergedSettings?.askUserForASolutionAfterEvaluation ?? false;
+  const minEvaluationsForPrompt = mergedSettings?.minEvaluationsPerQuestion ?? 0;
+  const [hasShownAfterEvalPrompt, setHasShownAfterEvalPrompt] = useState(false);
+
+  // Count how many solutions in the current batch have been evaluated
+  const evaluatedInBatch = solutions.filter(
+    s => evaluationScores.has(s.statementId) || allEvaluatedIds.has(s.statementId)
+  ).length;
+  const allBatchEvaluated = evaluatedInBatch >= solutions.length && solutions.length > 0;
+
+  // Check if user has submitted solutions
   useEffect(() => {
+    console.info('[SolutionFeed Debug] Effect triggered:', { userId, hasCheckedUserSolutions, requiresSolution });
     if (!userId || hasCheckedUserSolutions) return;
 
     const checkUserSolutions = async () => {
       try {
+        console.info('[SolutionFeed Debug] Checking user solutions for questionId:', questionId);
         const response = await fetch(`/api/user-solutions/${questionId}?userId=${userId}`);
         if (response.ok) {
           const data = await response.json();
+          console.info('[SolutionFeed Debug] API response:', data);
           setHasSubmittedSolution(data.hasSubmitted);
-          if (!data.hasSubmitted && requiresSolution) {
+          setUserSolutionCount(data.solutionCount || 0);
+
+          if (inSurveyContext) {
+            window.dispatchEvent(new CustomEvent('user-solution-count', {
+              detail: { count: data.solutionCount || 0, questionId }
+            }));
+          }
+
+          const shouldShowModal = !data.hasSubmitted && requiresSolution;
+          console.info('[SolutionFeed Debug] Should show modal?', shouldShowModal, '(hasSubmitted:', data.hasSubmitted, 'requiresSolution:', requiresSolution, ')');
+          if (shouldShowModal) {
             setShowSolutionPrompt(true);
           }
         }
         setHasCheckedUserSolutions(true);
       } catch (error) {
-        console.error('Failed to check user solutions:', error);
+        logError(error, {
+          operation: 'SolutionFeedClient.checkUserSolutions',
+          metadata: { questionId },
+        });
         setHasCheckedUserSolutions(true);
       }
     };
 
     checkUserSolutions();
-  }, [userId, questionId, requiresSolution, hasCheckedUserSolutions]);
+  }, [userId, questionId, requiresSolution, hasCheckedUserSolutions, inSurveyContext]);
 
   // Fetch participant count for completion screen
   useEffect(() => {
@@ -80,19 +141,49 @@ export default function SolutionFeedClient({
           setParticipantCount(data.participantCount || 0);
         }
       } catch (error) {
-        console.error('Failed to fetch participant count:', error);
+        logError(error, {
+          operation: 'SolutionFeedClient.fetchParticipantCount',
+          metadata: { questionId },
+        });
       }
     };
 
     fetchParticipantCount();
   }, [questionId]);
 
-  // Initialize user ID and load evaluation history on mount
+  // Emit solutions count for navigation
+  useEffect(() => {
+    const event = new CustomEvent('solutions-loaded', {
+      detail: { count: solutions.length, questionId }
+    });
+    window.dispatchEvent(event);
+
+    const timeoutId = setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('solutions-loaded', {
+        detail: { count: solutions.length, questionId }
+      }));
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [solutions.length, questionId]);
+
+  // One-time initialization: user ID and page-view tracking
   useEffect(() => {
     const id = getOrCreateAnonymousUser();
     setUserId(id);
+    userIdRef.current = id;
 
-    // Load user's evaluation history
+    if (!hasTrackedPageView.current) {
+      trackPageView(questionId, id);
+      hasTrackedPageView.current = true;
+    }
+  }, [questionId]);
+
+  // Load evaluation history when questionId changes (not when solutions change)
+  useEffect(() => {
+    const id = userIdRef.current;
+    if (!id) return;
+
     const loadEvaluationHistory = async () => {
       try {
         const response = await fetch(`/api/user-evaluations/${questionId}?userId=${id}`);
@@ -101,49 +192,129 @@ export default function SolutionFeedClient({
           const evaluatedSet = new Set<string>(data.evaluatedOptionsIds || []);
           setAllEvaluatedIds(evaluatedSet);
 
-          // Check if all options are already evaluated
           if (totalOptionsCount > 0 && evaluatedSet.size >= totalOptionsCount) {
             setAllOptionsEvaluated(true);
           }
 
-          // Mark current batch items as evaluated if they were previously evaluated
-          const currentBatchEvaluated = new Set<string>();
-          solutions.forEach(solution => {
-            if (evaluatedSet.has(solution.statementId)) {
-              currentBatchEvaluated.add(solution.statementId);
+          // Fetch individual evaluation scores for already-evaluated solutions
+          setSolutions((currentSolutions) => {
+            // Fetch individual evaluation scores for solutions already evaluated
+            const evaluatedSolutionsInBatch = currentSolutions.filter(solution =>
+              evaluatedSet.has(solution.statementId)
+            );
+
+            if (evaluatedSolutionsInBatch.length > 0) {
+              Promise.all(
+                evaluatedSolutionsInBatch.map(async (solution) => {
+                  try {
+                    const evalResponse = await fetch(
+                      `/api/evaluations/${solution.statementId}?userId=${id}`
+                    );
+                    if (evalResponse.ok) {
+                      const evalData = await evalResponse.json();
+                      if (evalData.evaluation?.evaluation !== undefined) {
+                        return [solution.statementId, evalData.evaluation.evaluation as number] as const;
+                      }
+                    }
+                  } catch (err) {
+                    logError(err, {
+                      operation: 'SolutionFeedClient.loadEvaluationHistory.fetchEvaluation',
+                      metadata: { statementId: solution.statementId },
+                    });
+                  }
+                  return null;
+                })
+              ).then((results) => {
+                const scoresMap = new Map<string, number>();
+                for (const result of results) {
+                  if (result) {
+                    scoresMap.set(result[0], result[1]);
+                  }
+                }
+                setEvaluationScores(scoresMap);
+
+                if (scoresMap.size > 0) {
+                  window.dispatchEvent(new CustomEvent('evaluations-loaded', {
+                    detail: { count: scoresMap.size, questionId }
+                  }));
+                }
+              });
             }
+
+            // Return unchanged solutions (we're just reading, not mutating)
+            return currentSolutions;
           });
-          setEvaluatedIds(currentBatchEvaluated);
         }
       } catch (error) {
-        console.error('Failed to load evaluation history:', error);
+        logError(error, {
+          operation: 'SolutionFeedClient.loadEvaluationHistory',
+          metadata: { questionId },
+        });
       }
     };
 
-    if (id) {
-      loadEvaluationHistory();
-    }
-  }, [questionId, totalOptionsCount, solutions]);
+    loadEvaluationHistory();
+  }, [questionId, totalOptionsCount]);
 
-  // Track evaluated solutions count - use useMemo to ensure stable computation during SSR hydration
-  const evaluatedCount = useMemo(() => evaluatedIds.size, [evaluatedIds]);
-  const canGetNewBatch = useMemo(() => evaluatedCount >= solutions.length, [evaluatedCount, solutions.length]);
-
-  // Show completion screen when first batch is completed
+  // Listen for trigger events from SurveyNavigation
   useEffect(() => {
-    if (canGetNewBatch && batchCount === 1 && !hasShownCompletionScreen && evaluatedCount > 0) {
+    if (!inSurveyContext) return;
+
+    const handleTriggerAddSuggestion = () => {
+      trackAddSolutionClick(questionId, userId);
+      setShowSolutionPrompt(true);
+    };
+
+    const handleTriggerViewProgress = () => {
       setShowCompletionScreen(true);
-      setHasShownCompletionScreen(true);
+    };
+
+    window.addEventListener('trigger-add-suggestion', handleTriggerAddSuggestion);
+    window.addEventListener('trigger-view-progress', handleTriggerViewProgress);
+
+    return () => {
+      window.removeEventListener('trigger-add-suggestion', handleTriggerAddSuggestion);
+      window.removeEventListener('trigger-view-progress', handleTriggerViewProgress);
+    };
+  }, [inSurveyContext, questionId, userId]);
+
+  // Dispatch show-view-progress event when in survey context
+  useEffect(() => {
+    if (inSurveyContext) {
+      const event = new CustomEvent('show-view-progress', {
+        detail: { show: allEvaluatedIds.size > 0 && showViewProgressEnabled }
+      });
+      window.dispatchEvent(event);
     }
-  }, [canGetNewBatch, batchCount, hasShownCompletionScreen, evaluatedCount]);
+  }, [allEvaluatedIds.size, inSurveyContext, showViewProgressEnabled]);
+
+  // Show solution prompt after completing minimum evaluations (if admin enabled)
+  useEffect(() => {
+    if (
+      askAfterEvaluation &&
+      !hasShownAfterEvalPrompt &&
+      minEvaluationsForPrompt > 0 &&
+      allEvaluatedIds.size >= minEvaluationsForPrompt
+    ) {
+      setHasShownAfterEvalPrompt(true);
+      setShowSolutionPrompt(true);
+    }
+  }, [askAfterEvaluation, hasShownAfterEvalPrompt, minEvaluationsForPrompt, allEvaluatedIds.size]);
 
   /**
-   * Handle evaluation of a solution
+   * Handle evaluation from SolutionCard
    */
   const handleEvaluate = async (solutionId: string, score: number) => {
+    const previousScore = evaluationScores.get(solutionId);
+    const wasAlreadyEvaluated = allEvaluatedIds.has(solutionId);
+
     try {
       // Optimistic update
-      setEvaluatedIds((prev) => new Set(prev).add(solutionId));
+      setEvaluationScores((prev) => {
+        const newMap = new Map(prev);
+        newMap.set(solutionId, score);
+        return newMap;
+      });
       setAllEvaluatedIds((prev) => new Set(prev).add(solutionId));
 
       // Call API
@@ -157,30 +328,51 @@ export default function SolutionFeedClient({
       });
 
       if (!response.ok) {
+        if (response.status === 404) {
+          // Solution no longer exists - remove it from the list
+          setSolutions((prev) => prev.filter((s) => s.statementId !== solutionId));
+          setError(t('This solution is no longer available and has been removed.'));
+
+          return;
+        }
         throw new Error('Failed to save evaluation');
       }
 
-      // Check if all options have been evaluated
-      const newTotalEvaluated = allEvaluatedIds.size + 1;
+      trackEvaluation(questionId, userId, solutionId, score);
+
+      if (!wasAlreadyEvaluated) {
+        window.dispatchEvent(new CustomEvent('solution-evaluated', {
+          detail: { solutionId, score, questionId }
+        }));
+      }
+
+      const newTotalEvaluated = allEvaluatedIds.size + (wasAlreadyEvaluated ? 0 : 1);
       if (totalOptionsCount > 0 && newTotalEvaluated >= totalOptionsCount) {
         setAllOptionsEvaluated(true);
       }
     } catch (error) {
-      console.error('Evaluation error:', error);
+      logError(error, {
+        operation: 'SolutionFeedClient.handleEvaluate',
+        metadata: { questionId, solutionId, score },
+      });
       // Revert optimistic update
-      setEvaluatedIds((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(solutionId);
-        
-return newSet;
+      setEvaluationScores((prev) => {
+        const newMap = new Map(prev);
+        if (previousScore !== undefined) {
+          newMap.set(solutionId, previousScore);
+        } else {
+          newMap.delete(solutionId);
+        }
+        return newMap;
       });
-      setAllEvaluatedIds((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(solutionId);
-        
-return newSet;
-      });
-      setError('Failed to save your evaluation. Please try again.');
+      if (!wasAlreadyEvaluated) {
+        setAllEvaluatedIds((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(solutionId);
+          return newSet;
+        });
+      }
+      setError(t('Failed to save your evaluation. Please try again.'));
     }
   };
 
@@ -188,7 +380,9 @@ return newSet;
    * Fetch new batch of solutions
    */
   const handleGetNewBatch = async () => {
-    if (!canGetNewBatch || isLoadingBatch || allOptionsEvaluated) return;
+    if (isLoadingBatch || allOptionsEvaluated) return;
+
+    trackNewBatchRequest(questionId, userId, batchCount + 1);
 
     setIsLoadingBatch(true);
     setError(null);
@@ -199,7 +393,7 @@ return newSet;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId,
-          excludeIds: Array.from(allEvaluatedIds), // Use all evaluated IDs, not just current batch
+          size: 6,
         }),
       });
 
@@ -211,15 +405,21 @@ return newSet;
 
       if (data.solutions && data.solutions.length > 0) {
         setSolutions(data.solutions);
-        setEvaluatedIds(new Set()); // Reset current batch tracking
+        setEvaluationScores(new Map());
         setBatchCount((prev) => prev + 1);
+
+        if (!data.hasMore) {
+          console.info('[SolutionFeedClient] Server indicates no more batches available');
+        }
       } else {
-        // No more solutions available - all have been evaluated
         setAllOptionsEvaluated(true);
       }
     } catch (error) {
-      console.error('Batch fetch error:', error);
-      setError('Failed to load new solutions. Please try again.');
+      logError(error, {
+        operation: 'SolutionFeedClient.handleGetNewBatch',
+        metadata: { questionId, batchCount },
+      });
+      setError(t('Failed to load new solutions. Please try again.'));
     } finally {
       setIsLoadingBatch(false);
     }
@@ -227,13 +427,18 @@ return newSet;
 
   /**
    * Handle solution flow completion
-   * Refresh the feed to show new/updated solutions
    */
   const handleSolutionComplete = async () => {
-    // Mark that user has submitted a solution
     setHasSubmittedSolution(true);
+    const newCount = userSolutionCount + 1;
+    setUserSolutionCount(newCount);
 
-    // Fetch a new batch to show the latest solutions
+    if (inSurveyContext) {
+      window.dispatchEvent(new CustomEvent('user-solution-count', {
+        detail: { count: newCount, questionId }
+      }));
+    }
+
     setIsLoadingBatch(true);
     try {
       const response = await fetch(`/api/statements/${questionId}/batch`, {
@@ -241,7 +446,7 @@ return newSet;
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId,
-          excludeIds: Array.from(allEvaluatedIds),
+          size: 6,
         }),
       });
 
@@ -249,135 +454,169 @@ return newSet;
         const data = await response.json();
         if (data.solutions && data.solutions.length > 0) {
           setSolutions(data.solutions);
-          setEvaluatedIds(new Set());
+          setEvaluationScores(new Map());
           setBatchCount((prev) => prev + 1);
         }
       }
     } catch (error) {
-      console.error('Failed to refresh after submission:', error);
+      logError(error, {
+        operation: 'SolutionFeedClient.handleSolutionComplete',
+        metadata: { questionId },
+      });
     } finally {
       setIsLoadingBatch(false);
     }
   };
 
-  /**
-   * Handle completion screen close
-   * Navigate to results or continue evaluating
-   */
   const handleCompletionClose = () => {
     setShowCompletionScreen(false);
+  };
+
+  const handleViewProgress = () => {
+    setShowCompletionScreen(true);
   };
 
   return (
     <ToastProvider>
       <div className={styles.feed}>
-      {/* Batch indicator */}
-      {batchCount > 1 && (
-        <div className={styles.batchIndicator}>
-          Batch {batchCount}
-        </div>
-      )}
+        {/* Error message */}
+        {error && (
+          <div className={styles.error}>
+            <p>{error}</p>
+            <button onClick={() => setError(null)}>{t('Dismiss')}</button>
+          </div>
+        )}
 
-      {/* Error message */}
-      {error && (
-        <div className={styles.error}>
-          <p>{error}</p>
-          <button onClick={() => setError(null)}>Dismiss</button>
-        </div>
-      )}
-
-      {/* Instructions */}
-      <div className={styles.instructions}>
-        <h3>{t('Please rate the following suggestions')}</h3>
-        <p>{t('Evaluate each suggestion from -1 (strongly disagree) to +1 (strongly agree)')}</p>
-      </div>
-
-      {/* Solution cards */}
-      <div className={styles.solutions}>
-        {solutions.map((solution) => (
-          <SolutionCard
-            key={solution.statementId}
-            solution={solution}
-            onEvaluate={handleEvaluate}
-            isEvaluated={evaluatedIds.has(solution.statementId)}
-          />
-        ))}
-      </div>
-
-      {/* Batch controls */}
-      <div className={styles.batchControls}>
-        {allOptionsEvaluated ? (
-          <div className={styles.completionMessage}>
-            <h3>🎉 {t('Thank You')}!</h3>
-            <p>{tWithParams('You have evaluated all {{count}} available options', { count: totalOptionsCount })}</p>
-            <p>{t('Your feedback helps improve the quality of solutions')}</p>
+        {/* Empty state */}
+        {hasNoSolutions ? (
+          <div className={styles.emptyState}>
+            <h3>{t('No solutions yet')}</h3>
+            {canAddSuggestions ? (
+              <>
+                <p>{t('Be the first to submit a solution!')}</p>
+                <button
+                  className={styles.addSolutionButtonPrimary}
+                  onClick={() => {
+                    trackAddSolutionClick(questionId, userId);
+                    setShowSolutionPrompt(true);
+                  }}
+                >
+                  {t('Add Solution')}
+                </button>
+              </>
+            ) : (
+              <p>{t('Solutions will appear here once they are added.')}</p>
+            )}
           </div>
         ) : (
           <>
-            <button
-              onClick={handleGetNewBatch}
-              disabled={!canGetNewBatch || isLoadingBatch}
-              className={`${styles.batchButton} ${
-                !canGetNewBatch || isLoadingBatch ? styles.disabled : ''
-              }`}
-            >
-              {isLoadingBatch ? (
-                <span>{t('Loading new suggestions...')}</span>
-              ) : (
-                <span>
-                  {t('Get New Suggestions')}
-                  {totalOptionsCount > 0 && (
-                    <span className={styles.progress}>
-                      {' '}({allEvaluatedIds.size}/{totalOptionsCount} {t('Evaluated').toLowerCase()})
-                    </span>
-                  )}
-                </span>
-              )}
-            </button>
+            {/* Instructions */}
+            <div className={styles.instructions}>
+              <h3>{t('Please rate the following suggestions')}</h3>
+              <p>{t('rateInstructions')}</p>
+            </div>
 
-            {!canGetNewBatch && (
-              <p className={styles.hint}>
-                {t('Evaluate all suggestions to get new ones')} ({solutions.length - evaluatedCount} {t('left')})
-              </p>
-            )}
+            {/* Solution cards list */}
+            <div className={styles.solutions}>
+              {solutions.map((solution) => (
+                <SolutionCard
+                  key={solution.statementId}
+                  solution={solution}
+                  onEvaluate={handleEvaluate}
+                  currentScore={evaluationScores.get(solution.statementId)}
+                />
+              ))}
+            </div>
+
+            {/* Batch controls */}
+            <div className={styles.batchControls}>
+              {allOptionsEvaluated ? (
+                <>
+                  <p className={styles.hint}>
+                    {tWithParams('You have evaluated all {{count}} available options', { count: totalOptionsCount })}
+                  </p>
+                  <button
+                    className={styles.batchButton}
+                    onClick={handleViewProgress}
+                  >
+                    {t('View Results')}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    className={`${styles.batchButton} ${!allBatchEvaluated ? styles.disabled : ''}`}
+                    onClick={handleGetNewBatch}
+                    disabled={isLoadingBatch || !allBatchEvaluated}
+                  >
+                    {isLoadingBatch
+                      ? t('Loading...')
+                      : `${t('Get New Suggestions')} (${evaluatedInBatch}/${solutions.length} ${t('evaluated')})`
+                    }
+                  </button>
+                  {!allBatchEvaluated && (
+                    <p className={styles.hint}>
+                      {t('Rate all suggestions above to get new ones')}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
           </>
         )}
-      </div>
 
-        {/* Add Solution Button - Fixed at bottom */}
-        <div className={styles.addSolutionContainer}>
-          <button
-            className={styles.addSolutionButton}
-            onClick={() => setShowSolutionPrompt(true)}
-          >
-            {t('Add Solution')}
-          </button>
-        </div>
+        {/* Action buttons - only show when NOT in survey context */}
+        {!inSurveyContext && !hasNoSolutions && (
+          <div className={styles.actionButtons}>
+            {allEvaluatedIds.size > 0 && showViewProgressEnabled && (
+              <button
+                className={styles.viewProgressButton}
+                onClick={handleViewProgress}
+              >
+                {t('View Progress')}
+              </button>
+            )}
+            {canAddSuggestions && (
+              <button
+                className={styles.addSolutionButton}
+                onClick={() => {
+                  trackAddSolutionClick(questionId, userId);
+                  setShowSolutionPrompt(true);
+                }}
+              >
+                {t('Add Solution')}
+              </button>
+            )}
+          </div>
+        )}
 
-        {/* Solution prompt modal - used for both initial prompt and manual add */}
+        {/* Social Feed - real-time activity */}
+        <SocialFeed isActive={!hasNoSolutions} />
+
+        {/* Solution prompt modal */}
         <SolutionPromptModal
           isOpen={showSolutionPrompt}
           onClose={() => setShowSolutionPrompt(false)}
           questionId={questionId}
           userId={userId}
           onSubmitSuccess={handleSolutionComplete}
+          questionText={question.statement}
+          questionDescription={getParagraphsText(question.paragraphs)}
           title={requiresSolution && !hasCheckedUserSolutions ? t('Add Your Solution First') : t('Add Solution')}
-          description={requiresSolution && !hasCheckedUserSolutions
-            ? t('Please share your idea before seeing and rating others')
-            : t('Share your idea for this question')}
         />
 
-        {/* Completion screen - shown after first batch evaluation */}
+        {/* Progress/Completion screen */}
         {showCompletionScreen && (
           <CompletionScreen
             questionId={questionId}
             userId={userId}
             participantCount={participantCount}
-            solutionsEvaluated={evaluatedCount}
+            solutionsEvaluated={allEvaluatedIds.size}
             hasSubmittedSolution={hasSubmittedSolution}
             onClose={handleCompletionClose}
           />
         )}
+
       </div>
     </ToastProvider>
   );

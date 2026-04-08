@@ -1,0 +1,214 @@
+// Interaction bar - compact inline actions for paragraphs
+// Appears on hover/tap via parent component
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--spacing-xs);
+  padding-top: 0.25rem;
+}
+
+.approvalButtons {
+  display: flex;
+  gap: 4px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  min-height: 44px; // WCAG 2.1 minimum touch target
+  border-radius: var(--radius-sm);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-caption);
+
+  svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+  }
+
+  &:hover:not(:disabled) {
+    background: var(--background);
+    border-color: var(--border-light);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  // Blocked state (demographics survey required)
+  &.blocked {
+    opacity: 0.6;
+    cursor: pointer;
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: transparent;
+    }
+  }
+
+  // Prevent click from bubbling to parent card
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+// Button text always visible for better accessibility (especially for elderly users)
+.buttonText {
+  // Text always visible on all screen sizes
+}
+
+.approveButton {
+  &:hover:not(:disabled) {
+    color: var(--agree);
+    border-color: var(--agree);
+    background: rgba(87, 198, 178, 0.08);
+  }
+
+  &.active {
+    background: var(--agree);
+    border-color: var(--agree);
+    color: white;
+
+    &:hover:not(:disabled) {
+      background: var(--agree);
+    }
+  }
+}
+
+.rejectButton {
+  &:hover:not(:disabled) {
+    color: var(--disagree);
+    border-color: var(--disagree);
+    background: rgba(254, 107, 162, 0.08);
+  }
+
+  &.active {
+    background: var(--disagree);
+    border-color: var(--disagree);
+    color: white;
+
+    &:hover:not(:disabled) {
+      background: var(--disagree);
+    }
+  }
+}
+
+// Vote count badge inside approve/reject buttons
+.voteCount {
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+  margin-inline-start: 2px;
+}
+
+.commentButton {
+  position: relative;
+
+  &:hover:not(:disabled) {
+    color: var(--btn-primary);
+    border-color: var(--btn-primary);
+    background: rgba(95, 136, 229, 0.08);
+  }
+}
+
+.commentCount {
+  position: absolute;
+  top: -4px;
+  inset-inline-end: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  background: var(--btn-primary);
+  color: white;
+  font-size: 0.6rem;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.suggestButton {
+  position: relative;
+
+  &:hover:not(:disabled) {
+    color: var(--warning, #f0ad4e);
+    border-color: var(--warning, #f0ad4e);
+    background: rgba(240, 173, 78, 0.08);
+  }
+}
+
+.suggestionCount {
+  position: absolute;
+  top: -4px;
+  inset-inline-end: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  background: var(--warning, #f0ad4e);
+  color: white;
+  font-size: 0.6rem;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+// Reduced motion support
+@media (prefers-reduced-motion: reduce) {
+  .button {
+    transition: none;
+
+    &:active {
+      transform: none;
+    }
+  }
+}
+
+/* RTL Support - using data-text-dir attribute for document-specific direction */
+:global([data-text-dir="rtl"]) {
+  .bar {
+    flex-direction: row-reverse;
+    justify-content: flex-end;
+  }
+
+  .approvalButtons {
+    flex-direction: row-reverse;
+  }
+
+  .button {
+    flex-direction: row-reverse;
+  }
+}
+
+/* LTR Support - explicitly set LTR even if root HTML is RTL */
+:global([data-text-dir="ltr"]) {
+  .bar {
+    flex-direction: row;
+    justify-content: flex-start;
+  }
+
+  .approvalButtons {
+    flex-direction: row;
+  }
+
+  .button {
+    flex-direction: row;
+  }
+}

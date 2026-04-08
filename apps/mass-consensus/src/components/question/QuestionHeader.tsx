@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Statement } from 'delib-npm';
+import { Statement } from '@freedi/shared-types';
 import { useTranslation } from '@freedi/shared-i18n/next';
+import { getParagraphsText } from '@/lib/utils/paragraphUtils';
+import InlineMarkdown from '../shared/InlineMarkdown';
 import styles from './QuestionHeader.module.css';
 
 interface QuestionHeaderProps {
@@ -28,9 +30,13 @@ export default function QuestionHeader({ question }: QuestionHeaderProps) {
 
   return (
     <header className={styles.header}>
-      <h1 className={styles.title}>{question.statement}</h1>
-      {question.description && (
-        <p className={styles.description}>{question.description}</p>
+      <h1 className={styles.title}>
+        <InlineMarkdown text={question.statement} />
+      </h1>
+      {getParagraphsText(question.paragraphs) && (
+        <p className={styles.description}>
+          <InlineMarkdown text={getParagraphsText(question.paragraphs)} />
+        </p>
       )}
       <div className={styles.meta}>
         <span className={styles.metaItem}>

@@ -1,11 +1,12 @@
 import React from 'react';
-import { Statement, UserDemographicQuestion, Role } from 'delib-npm';
+import { Statement, UserDemographicQuestion, Role } from '@freedi/shared-types';
 import StatementHeader from './header/StatementHeader';
 import Switch from './switch/Switch';
 import { MapProvider } from '@/controllers/hooks/useMap';
 import { ConditionalModals } from './ConditionalModals';
 import useSlideAndSubStatement from '@/controllers/hooks/useSlideAndSubStatement';
 import FollowMeToast from './followMeToast/FollowMeToast';
+import { TreeFilterProvider } from './treeView/TreeFilterContext';
 
 interface StatementContentProps {
 	statement: Statement | null;
@@ -28,7 +29,10 @@ export const StatementContent: React.FC<StatementContentProps> = ({
 	isMassConsensus,
 	role,
 }) => {
-	const { toSlide, slideInOrOut } = useSlideAndSubStatement(statement?.parentId, statement?.statementId);
+	const { toSlide, slideInOrOut } = useSlideAndSubStatement(
+		statement?.parentId,
+		statement?.statementId,
+	);
 
 	// Apply animation class when navigating between statements
 	const pageClassName = toSlide ? `page ${slideInOrOut}` : 'page';
@@ -50,26 +54,30 @@ export const StatementContent: React.FC<StatementContentProps> = ({
 			/>
 
 			{/* Apply blur and disable interaction when mandatory survey is showing */}
-			<div style={{
-				filter: isSurveyMandatory ? 'blur(3px)' : 'none',
-				pointerEvents: isSurveyMandatory ? 'none' : 'auto',
-				opacity: isSurveyMandatory ? 0.5 : 1,
-				transition: 'all 0.3s ease',
-				display: 'flex',
-				flexDirection: 'column',
-				height: '100%',
-				overflow: 'hidden'
-			}}>
-				<StatementHeader
-					statement={statement}
-					parentStatement={undefined}
-					topParentStatement={topParentStatement}
-				/>
+			<TreeFilterProvider>
+				<div
+					style={{
+						filter: isSurveyMandatory ? 'blur(3px)' : 'none',
+						pointerEvents: isSurveyMandatory ? 'none' : 'auto',
+						opacity: isSurveyMandatory ? 0.5 : 1,
+						transition: 'all 0.3s ease',
+						display: 'flex',
+						flexDirection: 'column',
+						height: '100%',
+						overflow: 'hidden',
+					}}
+				>
+					<StatementHeader
+						statement={statement}
+						parentStatement={undefined}
+						topParentStatement={topParentStatement}
+					/>
 
-				<MapProvider>
-					<Switch />
-				</MapProvider>
-			</div>
+					<MapProvider>
+						<Switch />
+					</MapProvider>
+				</div>
+			</TreeFilterProvider>
 		</div>
 	);
 };

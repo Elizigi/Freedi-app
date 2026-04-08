@@ -1,6 +1,11 @@
-import { Statement } from 'delib-npm';
+'use client';
+
+import { Statement } from '@freedi/shared-types';
 import clsx from 'clsx';
 import { calculateAgreement, getAgreementColor, getFallbackColor } from '@/lib/utils/consensusColors';
+import { getParagraphsText } from '@/lib/utils/paragraphUtils';
+import { useTranslation } from '@freedi/shared-i18n/next';
+import InlineMarkdown from '../shared/InlineMarkdown';
 import styles from './ResultCard.module.scss';
 
 interface ResultCardProps {
@@ -10,6 +15,7 @@ interface ResultCardProps {
 }
 
 export default function ResultCard({ statement, isUserStatement, totalParticipants }: ResultCardProps) {
+  const { t } = useTranslation();
   // Calculate agreement score using the same logic as Triangle
   const { sumPro = 0, sumCon = 0, numberOfEvaluators = 1 } = statement.evaluation || {};
   const agreement = calculateAgreement(sumPro, sumCon, numberOfEvaluators);
@@ -58,13 +64,17 @@ export default function ResultCard({ statement, isUserStatement, totalParticipan
       <div className={styles.resultCard__content}>
         {isUserStatement && (
           <div className={styles.resultCard__badgeRow}>
-            <span className={styles.resultCard__userBadge}>Your suggestion</span>
+            <span className={styles.resultCard__userBadge}>{t('Your suggestion')}</span>
           </div>
         )}
         <div className={styles.resultCard__text}>
-          <h3 className={styles.resultCard__title}>{statement.statement}</h3>
-          {statement.description && (
-            <p className={styles.resultCard__description}>{statement.description}</p>
+          <h3 className={styles.resultCard__title}>
+            <InlineMarkdown text={statement.statement} />
+          </h3>
+          {getParagraphsText(statement.paragraphs) && (
+            <p className={styles.resultCard__description}>
+              <InlineMarkdown text={getParagraphsText(statement.paragraphs)} />
+            </p>
           )}
         </div>
       </div>
@@ -80,14 +90,14 @@ export default function ResultCard({ statement, isUserStatement, totalParticipan
             >
               {agreementScore}%
             </span>
-            <span className={styles.consensusScore__label}>Consensus score</span>
+            <span className={styles.consensusScore__label}>{t('Consensus score')}</span>
           </div>
 
           {/* Right side - Badges */}
           <div className={styles.badges}>
             {/* Participants badge */}
             <div className={clsx(styles.badge, styles['badge--participants'])}>
-              <span className={styles.badge__label}>Voted</span>
+              <span className={styles.badge__label}>{t('Voted')}</span>
               <span className={styles.badge__value}>
                 <span
                   className={styles.badge__background}
@@ -102,7 +112,7 @@ export default function ResultCard({ statement, isUserStatement, totalParticipan
 
             {/* Support badge */}
             <div className={clsx(styles.badge, styles['badge--support'])}>
-              <span className={styles.badge__label}>Support</span>
+              <span className={styles.badge__label}>{t('Support')}</span>
               <div className={styles.badge__iconValue}>
                 <span
                   className={styles.badge__background}
@@ -120,7 +130,7 @@ export default function ResultCard({ statement, isUserStatement, totalParticipan
 
             {/* Against badge */}
             <div className={clsx(styles.badge, styles['badge--against'])}>
-              <span className={styles.badge__label}>Against</span>
+              <span className={styles.badge__label}>{t('Against')}</span>
               <div className={styles.badge__iconValue}>
                 <span
                   className={styles.badge__background}
@@ -135,6 +145,44 @@ export default function ResultCard({ statement, isUserStatement, totalParticipan
                 <span className={styles.badge__valueText}>{againstCount.toFixed(1)}</span>
               </div>
             </div>
+
+            {/* Agreement Index badge */}
+            {statement.evaluation?.agreementIndex !== undefined && (
+              <div className={clsx(styles.badge, styles['badge--participants'])}>
+                <span className={styles.badge__label}>{t('Agreement Index')}</span>
+                <span className={styles.badge__value}>
+                  <span
+                    className={styles.badge__background}
+                    style={{
+                      backgroundColor: 'var(--option)',
+                      opacity: Math.max(0.3, statement.evaluation.agreementIndex),
+                    }}
+                  />
+                  <span className={styles.badge__number}>
+                    {Math.round(statement.evaluation.agreementIndex * 100)}%
+                  </span>
+                </span>
+              </div>
+            )}
+
+            {/* Confidence Index badge */}
+            {statement.evaluation?.confidenceIndex !== undefined && (
+              <div className={clsx(styles.badge, styles['badge--participants'])}>
+                <span className={styles.badge__label}>{t('Confidence Index')}</span>
+                <span className={styles.badge__value}>
+                  <span
+                    className={styles.badge__background}
+                    style={{
+                      backgroundColor: 'var(--option)',
+                      opacity: Math.max(0.3, statement.evaluation.confidenceIndex),
+                    }}
+                  />
+                  <span className={styles.badge__number}>
+                    {Math.round(statement.evaluation.confidenceIndex * 100)}%
+                  </span>
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>

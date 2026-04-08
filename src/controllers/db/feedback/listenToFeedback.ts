@@ -1,15 +1,18 @@
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
-import { Collections, Feedback } from 'delib-npm';
+import { Collections, Feedback } from '@freedi/shared-types';
 import { DB } from '../config';
 import { convertTimestampsToMillis } from '@/helpers/timestampHelpers';
+import { logError } from '@/utils/errorHandling';
 
 export function listenToFeedback(
 	statementId: string,
-	callback: (feedback: Feedback[]) => void
+	callback: (feedback: Feedback[]) => void,
 ): () => void {
 	try {
 		if (!statementId) {
-			console.error('No statementId provided to listenToFeedback');
+			logError(new Error('No statementId provided to listenToFeedback'), {
+				operation: 'feedback.listenToFeedback.listenToFeedback',
+			});
 
 			return () => {};
 		}
@@ -18,7 +21,7 @@ export function listenToFeedback(
 		// We'll sort client-side instead
 		const feedbackQuery = query(
 			collection(DB, Collections.feedback),
-			where('statementId', '==', statementId)
+			where('statementId', '==', statementId),
 		);
 
 		const unsubscribe = onSnapshot(
@@ -35,8 +38,8 @@ export function listenToFeedback(
 								// Ensure creator exists with required fields
 								creator: data.creator || {
 									uid: 'unknown',
-									displayName: 'Unknown User'
-								}
+									displayName: 'Unknown User',
+								},
 							});
 						}
 					});
@@ -45,29 +48,38 @@ export function listenToFeedback(
 					feedbackList.sort((a, b) => {
 						const aTime = a.createdAt || 0;
 						const bTime = b.createdAt || 0;
-						
-return bTime - aTime;
+
+						return bTime - aTime;
 					});
 
 					callback(feedbackList);
 				} catch (error) {
-					console.error('Error processing feedback snapshot:', error);
+					logError(error, {
+						operation: 'feedback.listenToFeedback.unknown',
+						metadata: { message: 'Error processing feedback snapshot:' },
+					});
 					callback([]);
 				}
 			},
 			(error) => {
-				console.error('Error in feedback listener:', error);
+				logError(error, {
+					operation: 'feedback.listenToFeedback.unknown',
+					metadata: { message: 'Error in feedback listener:' },
+				});
 				// If it's an index error, provide helpful message
 				if (error.message?.includes('index')) {
 					console.info('Consider adding a composite index for better performance');
 				}
 				callback([]);
-			}
+			},
 		);
 
 		return unsubscribe;
 	} catch (error) {
-		console.error('Error setting up feedback listener:', error);
+		logError(error, {
+			operation: 'feedback.listenToFeedback.unknown',
+			metadata: { message: 'Error setting up feedback listener:' },
+		});
 		callback([]);
 
 		return () => {};

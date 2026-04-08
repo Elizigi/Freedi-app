@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFirestoreAdmin } from '@/lib/firebase/admin';
 import { logError } from '@/lib/utils/errorHandling';
+import { logger } from '@/lib/utils/logger';
 
 // Use the same collection as the Firebase function for admin notifications
 const EMAIL_SUBSCRIBERS_COLLECTION = 'emailSubscribers';
@@ -77,19 +78,24 @@ export async function POST(
     // Create subscription ID matching the format in Firebase function
     const subscriberId = `${statementId}--${email.toLowerCase().replace(/[^a-z0-9]/g, '_')}--${Date.now()}`;
 
+    // Build subscription object, only including userId if it's a valid non-empty string
     const subscription: EmailSubscriber = {
       subscriberId,
       email: email.toLowerCase(),
       statementId,
-      userId: userId || undefined,
       createdAt: Date.now(),
       isActive: true,
       source: 'mass-consensus',
     };
 
+    // Only add userId if it's a valid non-empty string (Firestore rejects undefined values)
+    if (typeof userId === 'string' && userId.trim().length > 0) {
+      subscription.userId = userId;
+    }
+
     await db.collection(EMAIL_SUBSCRIBERS_COLLECTION).doc(subscriberId).set(subscription);
 
-    console.info('Email subscriber added from mass-consensus', {
+    logger.info('Email subscriber added from mass-consensus', {
       subscriberId,
       statementId,
     });

@@ -2,10 +2,11 @@ import { Suspense } from 'react';
 import { Metadata } from 'next';
 import { getQuestionFromFirebase, getRandomOptions } from '@/lib/firebase/queries';
 import QuestionHeader from '@/components/question/QuestionHeader';
-import SolutionFeed from '@/components/question/SolutionFeed';
+import SwipeInterfaceWrapper from '@/components/swipe/SwipeInterfaceWrapper';
 import SkeletonLoader from '@/components/shared/SkeletonLoader';
 import { LanguageOverrideProvider } from '@/components/providers/LanguageOverrideProvider';
 import { notFound } from 'next/navigation';
+import { getParagraphsText } from '@/lib/utils/paragraphUtils';
 
 interface PageProps {
   params: { statementId: string };
@@ -20,10 +21,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
     return {
       title: `${question.statement} | Freedi Discussion`,
-      description: question.description || `Participate in this discussion: ${question.statement}`,
+      description: getParagraphsText(question.paragraphs) || `Participate in this discussion: ${question.statement}`,
       openGraph: {
         title: question.statement,
-        description: question.description || 'Join the discussion',
+        description: getParagraphsText(question.paragraphs) || 'Join the discussion',
         type: 'website',
       },
     };
@@ -55,7 +56,7 @@ export default async function QuestionPage({ params }: PageProps) {
     return (
       <LanguageOverrideProvider
         adminLanguage={question.defaultLanguage}
-        forceLanguage={question.forceLanguage}
+        forceLanguage={(question as { forceLanguage?: boolean }).forceLanguage ?? false}
       >
         <div className="page">
           {/* Server Component - Static header */}
@@ -63,7 +64,7 @@ export default async function QuestionPage({ params }: PageProps) {
 
           {/* Suspense boundary for streaming */}
           <Suspense fallback={<SkeletonLoader count={3} />}>
-            <SolutionFeed
+            <SwipeInterfaceWrapper
               question={question}
               initialSolutions={initialBatch}
             />

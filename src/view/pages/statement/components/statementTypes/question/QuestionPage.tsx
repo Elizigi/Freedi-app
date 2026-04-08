@@ -1,27 +1,24 @@
 import { useContext } from 'react';
-import { StatementContext } from '../../../StatementCont';
-
-import { QuestionType } from 'delib-npm';
-import MassConsensusAdmin from './massConsesusQuestion/MassConsensusAdmin';
 import MultiStageQuestion from './document/MultiStageQuestion';
 import { useLocation } from 'react-router';
 import StagePage from '../stage/StagePage';
+import { CompoundQuestion } from './compound';
+import { StatementContext } from '@/view/pages/statement/StatementCont';
+import { QuestionType } from '@freedi/shared-types';
 
 const QuestionPage = () => {
 	const location = useLocation();
-
 	const { statement } = useContext(StatementContext);
-	const massConsensus: boolean | undefined =
-		statement?.questionSettings?.questionType ===
-		QuestionType.massConsensus;
 
 	if (location.pathname.includes('stage')) {
 		return <StagePage />;
-	} else if (massConsensus) {
-		return <MassConsensusAdmin />;
-	} else {
-		return <MultiStageQuestion />;
 	}
+
+	if (statement?.questionSettings?.questionType === QuestionType.compound) {
+		return <CompoundQuestion />;
+	}
+
+	return <MultiStageQuestion />;
 };
 
 export default QuestionPage;

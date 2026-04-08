@@ -1,12 +1,13 @@
-import { doc, setDoc, getDoc, updateDoc } from 'firebase/firestore';
+import { setDoc, getDoc, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
-import { FireStore, functions } from '../config';
-import { Collections } from 'delib-npm';
+import { functions } from '../config';
+import { Collections } from '@freedi/shared-types';
+import { createDocRef } from '@/utils/firebaseUtils';
 import {
 	RefinementSession,
 	IdeaRefinementStatus,
 	RefinementMessage,
-	FalsifiabilityAnalysis
+	FalsifiabilityAnalysis,
 } from '@/models/popperHebbian';
 import { logger } from '@/services/logger';
 
@@ -45,7 +46,7 @@ export async function startRefinementSession(
 	parentStatementId: string,
 	originalIdea: string,
 	userId: string,
-	language?: string
+	language?: string,
 ): Promise<RefinementSession> {
 	try {
 		// Call Firebase Function to analyze falsifiability
@@ -57,7 +58,7 @@ export async function startRefinementSession(
 		const result = await analyzeFalsifiability({
 			ideaText: originalIdea,
 			context: undefined,
-			language: language || 'en'
+			language: language || 'en',
 		});
 
 		const { analysis, initialMessage } = result.data;
@@ -79,20 +80,17 @@ export async function startRefinementSession(
 					role: 'ai-guide',
 					content: initialMessage,
 					timestamp: Date.now(),
-					messageType: 'question'
-				}
+					messageType: 'question',
+				},
 			],
 			vagueTerms: analysis.vagueTerms,
 			testabilityCriteria: [],
 			createdAt: Date.now(),
-			lastUpdate: Date.now()
+			lastUpdate: Date.now(),
 		};
 
 		// Save to Firestore
-		await setDoc(
-			doc(FireStore, Collections.refinementSessions, sessionId),
-			session
-		);
+		await setDoc(createDocRef(Collections.refinementSessions, sessionId), session);
 
 		logger.info('Refinement session started', { sessionId, userId });
 
@@ -100,7 +98,7 @@ export async function startRefinementSession(
 	} catch (error) {
 		logger.error('Failed to start refinement session', error, {
 			parentStatementId,
-			userId
+			userId,
 		});
 		throw error;
 	}
@@ -109,11 +107,11 @@ export async function startRefinementSession(
 export async function submitRefinementResponse(
 	sessionId: string,
 	userResponse: string,
-	language?: string
+	language?: string,
 ): Promise<RefinementSession> {
 	try {
 		// Get current session
-		const sessionRef = doc(FireStore, Collections.refinementSessions, sessionId);
+		const sessionRef = createDocRef(Collections.refinementSessions, sessionId);
 		const sessionSnap = await getDoc(sessionRef);
 
 		if (!sessionSnap.exists()) {
@@ -128,7 +126,7 @@ export async function submitRefinementResponse(
 			role: 'user',
 			content: userResponse,
 			timestamp: Date.now(),
-			messageType: 'answer'
+			messageType: 'answer',
 		};
 
 		const updatedHistory = [...session.conversationHistory, userMessage];
@@ -136,7 +134,7 @@ export async function submitRefinementResponse(
 		// Call Firebase Function to continue dialogue
 		const refineIdea = httpsCallable<RefineIdeaRequest, RefineIdeaResponse>(
 			functions,
-			'refineIdea'
+			'refineIdea',
 		);
 
 		const result = await refineIdea({
@@ -145,7 +143,7 @@ export async function submitRefinementResponse(
 			conversationHistory: updatedHistory,
 			originalIdea: session.originalIdea,
 			currentRefinedIdea: session.refinedIdea,
-			language: language || 'en'
+			language: language || 'en',
 		});
 
 		const { aiMessage, refinedIdea, isComplete, testabilityCriteria } = result.data;
@@ -156,7 +154,7 @@ export async function submitRefinementResponse(
 			role: 'ai-guide',
 			content: aiMessage,
 			timestamp: Date.now(),
-			messageType: isComplete ? 'suggestion' : 'question'
+			messageType: isComplete ? 'suggestion' : 'question',
 		};
 
 		const finalHistory = [...updatedHistory, aiMessageObj];
@@ -170,7 +168,7 @@ export async function submitRefinementResponse(
 				? IdeaRefinementStatus.readyForDiscussion
 				: IdeaRefinementStatus.inRefinement,
 			testabilityCriteria: testabilityCriteria || session.testabilityCriteria,
-			lastUpdate: Date.now()
+			lastUpdate: Date.now(),
 		};
 
 		// Only add completedAt if the session is complete
@@ -179,13 +177,16 @@ export async function submitRefinementResponse(
 		}
 
 		// Remove undefined values before updating Firestore
-		const cleanedUpdate = Object.entries(updatedSession).reduce((acc, [key, value]) => {
-			if (value !== undefined) {
-				acc[key] = value;
-			}
+		const cleanedUpdate = Object.entries(updatedSession).reduce(
+			(acc, [key, value]) => {
+				if (value !== undefined) {
+					acc[key] = value;
+				}
 
-			return acc;
-		}, {} as Record<string, unknown>);
+				return acc;
+			},
+			{} as Record<string, unknown>,
+		);
 
 		await updateDoc(sessionRef, cleanedUpdate);
 
@@ -198,11 +199,9 @@ export async function submitRefinementResponse(
 	}
 }
 
-export async function publishRefinedIdea(
-	sessionId: string
-): Promise<RefinementSession> {
+export async function publishRefinedIdea(sessionId: string): Promise<RefinementSession> {
 	try {
-		const sessionRef = doc(FireStore, Collections.refinementSessions, sessionId);
+		const sessionRef = createDocRef(Collections.refinementSessions, sessionId);
 		const sessionSnap = await getDoc(sessionRef);
 
 		if (!sessionSnap.exists()) {
@@ -218,7 +217,7 @@ export async function publishRefinedIdea(
 		// Mark session as published
 		await updateDoc(sessionRef, {
 			status: 'published',
-			lastUpdate: Date.now()
+			lastUpdate: Date.now(),
 		});
 
 		logger.info('Refined idea published', { sessionId });

@@ -1,21 +1,18 @@
 import { httpsCallable } from 'firebase/functions';
-import { doc, updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
-import { FireStore, functions, auth } from '../config';
-import { Collections, Statement } from 'delib-npm';
+import { updateDoc, arrayUnion, getDoc } from 'firebase/firestore';
+import { functions, auth } from '../config';
+import { Statement } from '@freedi/shared-types';
 import { logError } from '@/utils/errorHandling';
-import { getCurrentTimestamp } from '@/utils/firebaseUtils';
+import { createStatementRef, getCurrentTimestamp } from '@/utils/firebaseUtils';
 import { logger } from '@/services/logger';
-import {
-	ImproveProposalResponse,
-	StatementVersion
-} from '@/models/popperHebbian';
+import { ImproveProposalResponse, StatementVersion } from '@/models/popperHebbian';
 
 /**
  * Request AI improvement for a proposal based on discussion comments
  */
 export async function requestProposalImprovement(
 	statementId: string,
-	language: string = 'en'
+	language: string = 'en',
 ): Promise<ImproveProposalResponse> {
 	try {
 		const improveProposal = httpsCallable<
@@ -47,7 +44,7 @@ export async function applyImprovement(
 	improvedTitle: string,
 	improvedDescription: string,
 	improvementSummary: string,
-	currentVersion: number = 0
+	currentVersion: number = 0,
 ): Promise<void> {
 	try {
 		const currentUser = auth.currentUser;
@@ -55,7 +52,7 @@ export async function applyImprovement(
 			throw new Error('User must be authenticated');
 		}
 
-		const statementRef = doc(FireStore, Collections.statements, statementId);
+		const statementRef = createStatementRef(statementId);
 		const newVersion: StatementVersion = {
 			version: currentVersion + 1,
 			title: improvedTitle,
@@ -93,7 +90,7 @@ export async function applyImprovement(
 		await updateDoc(statementRef, updates);
 		logger.info('Improvement applied', {
 			statementId,
-			newVersion: currentVersion + 1
+			newVersion: currentVersion + 1,
 		});
 	} catch (error) {
 		logError(error, {
@@ -111,7 +108,7 @@ export async function applyImprovement(
 export async function revertToVersion(
 	statementId: string,
 	versions: StatementVersion[],
-	targetVersion: number
+	targetVersion: number,
 ): Promise<void> {
 	try {
 		const currentUser = auth.currentUser;
@@ -119,12 +116,12 @@ export async function revertToVersion(
 			throw new Error('User must be authenticated');
 		}
 
-		const targetVersionData = versions.find(v => v.version === targetVersion);
+		const targetVersionData = versions.find((v) => v.version === targetVersion);
 		if (!targetVersionData) {
 			throw new Error('Target version not found');
 		}
 
-		const statementRef = doc(FireStore, Collections.statements, statementId);
+		const statementRef = createStatementRef(statementId);
 
 		// Create revert version entry
 		const revertVersion: StatementVersion = {
@@ -150,7 +147,7 @@ export async function revertToVersion(
 		logError(error, {
 			operation: 'improveProposalController.revertToVersion',
 			statementId,
-			metadata: { targetVersion }
+			metadata: { targetVersion },
 		});
 		throw error;
 	}
@@ -160,11 +157,7 @@ export async function revertToVersion(
  * Check if user can improve this proposal
  * Returns true if user is the creator or has admin/creator role
  */
-export function canUserImprove(
-	statement: Statement,
-	userId: string,
-	userRole?: string
-): boolean {
+export function canUserImprove(statement: Statement, userId: string, userRole?: string): boolean {
 	const isCreator = statement.creatorId === userId;
 	const isAdmin = userRole === 'admin' || userRole === 'creator';
 
@@ -175,10 +168,10 @@ export function canUserImprove(
  * Get statement with versions from Firestore
  */
 export async function getStatementWithVersions(
-	statementId: string
+	statementId: string,
 ): Promise<Statement & { versions?: StatementVersion[]; currentVersion?: number }> {
 	try {
-		const statementRef = doc(FireStore, Collections.statements, statementId);
+		const statementRef = createStatementRef(statementId);
 		const statementSnap = await getDoc(statementRef);
 
 		if (!statementSnap.exists()) {

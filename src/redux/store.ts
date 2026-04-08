@@ -1,40 +1,36 @@
 import { configureStore } from '@reduxjs/toolkit';
-import { evaluationsSlicer } from './evaluations/evaluationsSlice';
+import { evaluationsSlice } from './evaluations/evaluationsSlice';
 import { resultsSlice } from './results/resultsSlice';
-import { statementMetaData } from './statements/statementsMetaSlice';
-import { statementsSlicer } from './statements/statementsSlice';
-import { votesSlicer } from './vote/votesSlice';
+import { statementsMetaSlice } from './statements/statementsMetaSlice';
+import { statementsSlice } from './statements/statementsSlice';
+import { votesSlice } from './vote/votesSlice';
 import { choseBySlice } from './choseBy/choseBySlice';
-import { massConsensusSlice } from './massConsensus/massConsensusSlice';
-import { notificationsSlicer } from './notificationsSlice/notificationsSlice';
-import creatorReducer from './creator/creatorSlice';
-import SubscriptionsReducer from './subscriptions/subscriptionsSlice';
-import userDemographicReducer from './userDemographic/userDemographicSlice';
-import newStatementReducer from './statements/newStatementSlice';
-import pwaReducer from './pwa/pwaSlice';
-import { massConsensusApi } from './massConsensus/massConsensusApi';
+import { notificationsSlice } from './notificationsSlice/notificationsSlice';
+import { creatorSlice } from './creator/creatorSlice';
+import { subscriptionsSlice } from './subscriptions/subscriptionsSlice';
+import { userDemographicSlice } from './userDemographic/userDemographicSlice';
+import { newStatementSlice } from './statements/newStatementSlice';
+import { pwaSlice } from './pwa/pwaSlice';
 import { roomAssignmentSlice } from './roomAssignment/roomAssignmentSlice';
+import { engagementSlice } from './engagement/engagementSlice';
 
 export const store = configureStore({
 	reducer: {
-		statements: statementsSlicer.reducer,
-		statementMetaData: statementMetaData.reducer,
-		evaluations: evaluationsSlicer.reducer,
-		votes: votesSlicer.reducer,
+		statements: statementsSlice.reducer,
+		statementMetaData: statementsMetaSlice.reducer,
+		evaluations: evaluationsSlice.reducer,
+		votes: votesSlice.reducer,
 		results: resultsSlice.reducer,
 		choseBys: choseBySlice.reducer,
-		massConsensus: massConsensusSlice.reducer,
-		notifications: notificationsSlicer.reducer,
-		creator: creatorReducer,
-		subscriptions: SubscriptionsReducer.reducer,
-		userDemographic: userDemographicReducer,
-		newStatement: newStatementReducer,
-		pwa: pwaReducer,
+		notifications: notificationsSlice.reducer,
+		creator: creatorSlice.reducer,
+		subscriptions: subscriptionsSlice.reducer,
+		userDemographic: userDemographicSlice.reducer,
+		newStatement: newStatementSlice.reducer,
+		pwa: pwaSlice.reducer,
 		roomAssignment: roomAssignmentSlice.reducer,
-		[massConsensusApi.reducerPath]: massConsensusApi.reducer,
+		engagement: engagementSlice.reducer,
 	},
-	middleware: (getDefaultMiddleware) =>
-		getDefaultMiddleware().concat(massConsensusApi.middleware),
 });
 
 // Infer the `RootState` and `AppDispatch` types from the store itself

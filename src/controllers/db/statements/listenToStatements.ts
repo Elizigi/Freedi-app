@@ -1,19 +1,14 @@
 import { Unsubscribe } from 'firebase/auth';
-import {
-	and,
-	collection,
-	doc,
-	limit,
-	or,
-	orderBy,
-	query,
-	where,
-} from 'firebase/firestore';
+import { and, getDocs, limit, or, orderBy, query, startAfter, where } from 'firebase/firestore';
 import { logError } from '@/utils/errorHandling';
-import { convertTimestampsToMillis } from '@/helpers/timestampHelpers';
+import { normalizeStatementData, convertTimestampsToMillis } from '@/helpers/timestampHelpers';
 
 // Redux Store
-import { FireStore } from '../config';
+import {
+	createSubscriptionRef,
+	createStatementRef,
+	createCollectionRef,
+} from '@/utils/firebaseUtils';
 import {
 	deleteStatement,
 	removeMembership,
@@ -25,13 +20,14 @@ import {
 import { AppDispatch, store } from '@/redux/store';
 import {
 	StatementSubscription,
+	StatementSubscriptionSchema,
 	Role,
 	Collections,
 	StatementType,
 	Statement,
 	StatementSchema,
 	Creator,
-} from 'delib-npm';
+} from '@freedi/shared-types';
 
 import { parse, safeParse, flatten } from 'valibot';
 import React from 'react';
@@ -45,26 +41,19 @@ import {
 export const listenToStatementSubscription = (
 	statementId: string,
 	creator: Creator,
-	setHasSubscription?: React.Dispatch<React.SetStateAction<boolean>>
+	setHasSubscription?: React.Dispatch<React.SetStateAction<boolean>>,
 ): Unsubscribe => {
 	try {
 		const dispatch = store.dispatch;
 		const docId = `${creator.uid}--${statementId}`;
-		const statementsSubscribeRef = doc(
-			FireStore,
-			Collections.statementsSubscribe,
-			docId
-		);
+		const statementsSubscribeRef = createSubscriptionRef(docId);
 
-		const listenerKey = generateListenerKey(
-			'statement-subscription',
-			'subscription',
-			docId
-		);
+		const listenerKey = generateListenerKey('statement-subscription', 'subscription', docId);
 
 		// Track if we've already handled the error to prevent infinite loops
 		let errorHandled = false;
-		let unsubscribeFn: Unsubscribe | null = null;
+		// Initialize to noop to avoid null window between listener creation and assignment
+		let unsubscribeFn: Unsubscribe = () => {};
 
 		const listener = createManagedDocumentListener(
 			statementsSubscribeRef,
@@ -78,8 +67,10 @@ export const listenToStatementSubscription = (
 
 						return;
 					}
-					const statementSubscription =
-						statementSubscriptionDB.data() as StatementSubscription;
+					const statementSubscription = parse(
+						StatementSubscriptionSchema,
+						convertTimestampsToMillis(statementSubscriptionDB.data()),
+					) as StatementSubscription;
 
 					const { role } = statementSubscription;
 
@@ -88,14 +79,12 @@ export const listenToStatementSubscription = (
 						statementSubscription.role = Role.admin;
 					} else if (role === undefined) {
 						statementSubscription.role = Role.unsubscribed;
-						console.info(
-							'Role is undefined. Setting role to unsubscribed'
-						);
+						console.info('Role is undefined. Setting role to unsubscribed');
 					}
 
 					dispatch(setStatementSubscription(statementSubscription));
 				} catch (error) {
-					console.error(error);
+					logError(error, { operation: 'listenToStatementSubscription.onSnapshot' });
 				}
 			},
 			(error) => {
@@ -109,21 +98,20 @@ export const listenToStatementSubscription = (
 					// Permission denied is expected for some users, handle silently
 					if (setHasSubscription) setHasSubscription(false);
 					// Unsubscribe immediately to prevent repeated error callbacks
-					if (unsubscribeFn) {
-						unsubscribeFn();
-					}
+					unsubscribeFn();
 				} else {
-					console.error('Error in statement subscription listener:', error);
+					logError(error, { operation: 'listenToStatementSubscription.errorHandler', statementId });
 				}
-			}
+			},
 		);
 
-		// Store the unsubscribe function so we can call it from the error handler
+		// Store the actual unsubscribe function (closure captures the variable binding,
+		// so the error handler above will always call the current value)
 		unsubscribeFn = listener;
 
 		return listener;
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'statements.listenToStatements.unknown' });
 
 		return () => {};
 	}
@@ -131,22 +119,14 @@ export const listenToStatementSubscription = (
 
 export const listenToStatement = (
 	statementId: string | undefined,
-	setIsStatementNotFound?: React.Dispatch<React.SetStateAction<boolean>>
+	setIsStatementNotFound?: React.Dispatch<React.SetStateAction<boolean>>,
 ): Unsubscribe => {
 	try {
 		const dispatch = store.dispatch;
 		if (!statementId) throw new Error('Statement id is undefined');
-		const statementRef = doc(
-			FireStore,
-			Collections.statements,
-			statementId
-		);
+		const statementRef = createStatementRef(statementId);
 
-		const listenerKey = generateListenerKey(
-			'statement',
-			'statement',
-			statementId
-		);
+		const listenerKey = generateListenerKey('statement', 'statement', statementId);
 
 		return createManagedDocumentListener(
 			statementRef,
@@ -154,25 +134,29 @@ export const listenToStatement = (
 			(statementDB) => {
 				try {
 					if (!statementDB.exists()) {
-						if (setIsStatementNotFound)
-							setIsStatementNotFound(true);
-						throw new Error('Statement does not exist');
+						if (setIsStatementNotFound) setIsStatementNotFound(true);
+
+						return;
 					}
-					const statement = statementDB.data() as Statement;
+					// Normalize data to remove non-serializable values (like VectorValue embeddings)
+					const statement = normalizeStatementData(statementDB.data()) as Statement;
 
 					dispatch(setStatement(statement));
 				} catch (error) {
-					console.error(error);
+					logError(error, { operation: 'statements.listenToStatements.listenToStatement' });
 					if (setIsStatementNotFound) setIsStatementNotFound(true);
 				}
 			},
 			(error) => {
-				console.error('Error in statement listener:', error);
+				logError(error, {
+					operation: 'statements.listenToStatements.listenToStatement',
+					metadata: { message: 'Error in statement listener:' },
+				});
 				if (setIsStatementNotFound) setIsStatementNotFound(true);
-			}
+			},
 		);
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'statements.listenToStatements.unknown' });
 		if (setIsStatementNotFound) setIsStatementNotFound(true);
 
 		return () => {};
@@ -182,12 +166,12 @@ export const listenToStatement = (
 export const listenToSubStatements = (
 	statementId: string | undefined,
 	topBottom?: 'top' | 'bottom',
-	numberOfOptions?: number
+	numberOfOptions?: number,
 ): Unsubscribe => {
 	try {
 		const dispatch = store.dispatch;
 		if (!statementId) throw new Error('Statement id is undefined');
-		const statementsRef = collection(FireStore, Collections.statements);
+		const statementsRef = createCollectionRef(Collections.statements);
 
 		// Reduce the initial load to 25 items for faster initial loading
 		// This should be enough for most use cases while dramatically improving load time
@@ -198,7 +182,7 @@ export const listenToSubStatements = (
 			statementsRef,
 			where('parentId', '==', statementId),
 			where('statementType', '!=', StatementType.document),
-			orderBy('createdAt', descAsc)
+			orderBy('createdAt', descAsc),
 		);
 
 		// Only add limit if numberOfOptions is provided
@@ -209,7 +193,7 @@ export const listenToSubStatements = (
 		const listenerKey = generateListenerKey(
 			'sub-statements',
 			'statement',
-			`${statementId}-${topBottom || 'all'}-${numberOfOptions || 'all'}`
+			`${statementId}-${topBottom || 'all'}-${numberOfOptions || 'all'}`,
 		);
 
 		let isFirstCall = true;
@@ -223,7 +207,8 @@ export const listenToSubStatements = (
 					const startStatements: Statement[] = [];
 
 					statementsDB.forEach((doc) => {
-						const statement = doc.data() as Statement;
+						// Normalize data to remove non-serializable values (like VectorValue embeddings)
+						const statement = normalizeStatementData(doc.data()) as Statement;
 						startStatements.push(statement);
 					});
 
@@ -237,202 +222,224 @@ export const listenToSubStatements = (
 					// After initial load, handle individual changes
 					const changes = statementsDB.docChanges();
 
+					// When using a limited query, "removed" events may be window shifts
+					// (doc pushed out of the limit window by a new doc), not actual deletions.
+					// Only treat as deletion if no additions occur in the same snapshot batch.
+					const hasAdditions = numberOfOptions ? changes.some((c) => c.type === 'added') : false;
+
 					changes.forEach((change) => {
-						const statement = change.doc.data() as Statement;
+						// Normalize data to remove non-serializable values (like VectorValue embeddings)
+						const statement = normalizeStatementData(change.doc.data()) as Statement;
 
 						if (change.type === 'added') {
 							dispatch(setStatement(statement));
 						} else if (change.type === 'modified') {
 							dispatch(setStatement(statement));
 						} else if (change.type === 'removed') {
-							dispatch(deleteStatement(statement.statementId));
+							// Skip removal if it's likely a window shift (limited query + additions in same batch)
+							if (!hasAdditions) {
+								dispatch(deleteStatement(statement.statementId));
+							}
 						}
 					});
 				}
 			},
-			(error) => console.error('Error in sub-statements listener:', error),
-			'query'
+			(error) =>
+				logError(error, {
+					operation: 'statements.listenToStatements.unknown',
+					metadata: { message: 'Error in sub-statements listener:' },
+				}),
+			'query',
 		);
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'statements.listenToStatements.unknown' });
 
 		return () => {};
 	}
 };
 
-export const listenToMembers =
-	(dispatch: AppDispatch) => (statementId: string) => {
-		try {
-			const membersRef = collection(
-				FireStore,
-				Collections.statementsSubscribe
-			);
-			const q = query(
-				membersRef,
-				where('statementId', '==', statementId),
-				where('statement.statementType', '!=', StatementType.document),
-				orderBy('createdAt', 'desc'),
-				limit(10) // Load only last 10 members initially, more can be loaded on demand
-			);
-
-			const listenerKey = generateListenerKey(
-				'members',
-				'statement',
-				statementId
-			);
-
-			return createManagedCollectionListener(
-				q,
-				listenerKey,
-				(subsDB) => {
-					subsDB.docChanges().forEach((change) => {
-						const member = change.doc.data() as StatementSubscription;
-						if (change.type === 'added') {
-							dispatch(setMembership(member));
-						}
-
-						if (change.type === 'modified') {
-							dispatch(setMembership(member));
-						}
-
-						if (change.type === 'removed') {
-							dispatch(
-								removeMembership(member.statementsSubscribeId)
-							);
-						}
-					});
-				},
-				(error) => console.error('Error in members listener:', error),
-				'query'
-			);
-		} catch (error) {
-			console.error(error);
-			
-return () => {};
-		}
-	};
-
-export function listenToAllSubStatements(
+/**
+ * Fetch older sub-statements for lazy loading (one-time query, not a listener).
+ * Returns the fetched statements and whether there are more to load.
+ */
+export async function fetchOlderSubStatements(
 	statementId: string,
-	numberOfLastMessages = 7
-) {
+	oldestCreatedAt: number,
+	batchSize = 30,
+): Promise<{ statements: Statement[]; hasMore: boolean }> {
+	try {
+		const statementsRef = createCollectionRef(Collections.statements);
+
+		// Query for messages older than the oldest loaded one.
+		// Using desc order so startAfter gives us messages with createdAt < oldestCreatedAt.
+		// Note: A composite index on (parentId ASC, createdAt DESC) may be required.
+		const q = query(
+			statementsRef,
+			where('parentId', '==', statementId),
+			orderBy('createdAt', 'desc'),
+			startAfter(oldestCreatedAt),
+			limit(batchSize + 1),
+		);
+
+		const snapshot = await getDocs(q);
+		const statements: Statement[] = [];
+
+		snapshot.forEach((doc) => {
+			const statement = normalizeStatementData(doc.data()) as Statement;
+			// Filter out document types client-side
+			if (statement.statementType !== StatementType.document) {
+				statements.push(statement);
+			}
+		});
+
+		const hasMore = statements.length > batchSize;
+		const resultStatements = hasMore ? statements.slice(0, batchSize) : statements;
+
+		if (resultStatements.length > 0) {
+			store.dispatch(setStatements(resultStatements));
+		}
+
+		return { statements: resultStatements, hasMore };
+	} catch (error) {
+		logError(error, {
+			operation: 'statements.fetchOlderSubStatements',
+			statementId,
+			metadata: { oldestCreatedAt, batchSize },
+		});
+
+		return { statements: [], hasMore: false };
+	}
+}
+
+export const listenToMembers = (dispatch: AppDispatch) => (statementId: string) => {
+	try {
+		const membersRef = createCollectionRef(Collections.statementsSubscribe);
+		const q = query(
+			membersRef,
+			where('statementId', '==', statementId),
+			where('statement.statementType', '!=', StatementType.document),
+			orderBy('createdAt', 'desc'),
+			limit(10), // Load only last 10 members initially, more can be loaded on demand
+		);
+
+		const listenerKey = generateListenerKey('members', 'statement', statementId);
+
+		return createManagedCollectionListener(
+			q,
+			listenerKey,
+			(subsDB) => {
+				subsDB.docChanges().forEach((change) => {
+					const member = change.doc.data() as StatementSubscription;
+					if (change.type === 'added') {
+						dispatch(setMembership(member));
+					}
+
+					if (change.type === 'modified') {
+						dispatch(setMembership(member));
+					}
+
+					if (change.type === 'removed') {
+						dispatch(removeMembership(member.statementsSubscribeId));
+					}
+				});
+			},
+			(error) =>
+				logError(error, {
+					operation: 'statements.listenToStatements.unknown',
+					metadata: { message: 'Error in members listener:' },
+				}),
+			'query',
+		);
+	} catch (error) {
+		logError(error, { operation: 'statements.listenToStatements.unknown' });
+
+		return () => {};
+	}
+};
+
+export function listenToAllSubStatements(statementId: string, numberOfLastMessages = 7) {
 	try {
 		if (numberOfLastMessages > 25) numberOfLastMessages = 25;
 		if (!statementId) throw new Error('Statement id is undefined');
 
-		const statementsRef = collection(FireStore, Collections.statements);
+		const statementsRef = createCollectionRef(Collections.statements);
 		const q = query(
 			statementsRef,
 			where('topParentId', '==', statementId),
 			where('statementId', '!=', statementId),
 			orderBy('createdAt', 'desc'),
-			limit(numberOfLastMessages)
+			limit(numberOfLastMessages),
 		);
 
 		const listenerKey = generateListenerKey(
 			'all-sub-statements',
 			'statement',
-			`${statementId}-${numberOfLastMessages}`
+			`${statementId}-${numberOfLastMessages}`,
 		);
 
 		return createManagedCollectionListener(
 			q,
 			listenerKey,
 			(statementsDB) => {
-			statementsDB.docChanges().forEach((change) => {
-				const data = change.doc.data();
-				const docId = change.doc.id;
-				
-				// Use safeParse to get detailed validation information
-				const result = safeParse(StatementSchema, data);
-				
-				if (!result.success) {
-					// Get flattened error messages for easier reading
-					const flatErrors = flatten(result.issues);
-					
-					console.error('=== STATEMENT VALIDATION ERROR ===');
-					console.error('Document ID:', docId);
-					console.error('Full data received:', JSON.stringify(data, null, 2));
-					console.error('Data type:', typeof data);
-					
-					// Log detailed validation issues
-					console.error('Validation Issues:');
-					result.issues.forEach((issue, index) => {
-						console.error(`Issue ${index + 1}:`, {
-							kind: issue.kind,
-							type: issue.type,
-							input: issue.input,
-							expected: issue.expected,
-							received: issue.received,
-							message: issue.message,
-							path: issue.path?.map(p => p.key).join('.'),
-							requirement: issue.requirement,
-						});
-					});
-					
-					// Log flattened errors
-					console.error('Flattened errors:', flatErrors);
-					
-					// Log specific field analysis
-					if (data && typeof data === 'object') {
-						console.error('Field analysis:', {
-							hasRequiredFields: {
-								statement: 'statement' in data,
-								statementId: 'statementId' in data,
-								creatorId: 'creatorId' in data,
-								creator: 'creator' in data,
-								statementType: 'statementType' in data,
-								parentId: 'parentId' in data,
-								topParentId: 'topParentId' in data,
-								lastUpdate: 'lastUpdate' in data,
-								createdAt: 'createdAt' in data,
-								consensus: 'consensus' in data,
-							},
-							fieldTypes: {
-								statement: typeof data.statement,
-								statementId: typeof data.statementId,
-								creatorId: typeof data.creatorId,
-								creator: typeof data.creator,
-								statementType: typeof data.statementType,
-								parentId: typeof data.parentId,
-								topParentId: typeof data.topParentId,
-								lastUpdate: typeof data.lastUpdate,
-								createdAt: typeof data.createdAt,
-								consensus: typeof data.consensus,
-							},
-							problematicFields: {
-								resultsSettings: data.resultsSettings,
-								resultsSettingsType: typeof data.resultsSettings,
-								cutoffBy: data.resultsSettings?.cutoffBy,
-							}
-						});
-					}
-					console.error('=== END VALIDATION ERROR ===\n');
-					
-return;
-				}
-				
-				// Successfully parsed
-				const statement = result.output;
-				
-				if (statement.statementId === statementId) return;
+				statementsDB.docChanges().forEach((change) => {
+					const data = change.doc.data();
+					const docId = change.doc.id;
 
-				switch (change.type) {
-					case 'added':
-					case 'modified':
-						store.dispatch(setStatement(statement));
-						break;
-					case 'removed':
-						store.dispatch(deleteStatement(statement.statementId));
-						break;
-				}
-			});
+					// Use safeParse to get detailed validation information
+					const result = safeParse(StatementSchema, data);
+
+					if (!result.success) {
+						// Get flattened error messages for easier reading
+						const flatErrors = flatten(result.issues);
+
+						logError(new Error('Statement validation error'), {
+							operation: 'statements.listenToAllSubStatements.validation',
+							statementId: docId,
+							metadata: {
+								dataType: typeof data,
+								flatErrors,
+								issues: result.issues.map((issue, index) => ({
+									issueNumber: index + 1,
+									kind: issue.kind,
+									type: issue.type,
+									input: issue.input,
+									expected: issue.expected,
+									received: issue.received,
+									message: issue.message,
+									path: issue.path?.map((p) => p.key).join('.'),
+									requirement: issue.requirement,
+								})),
+							},
+						});
+
+						return;
+					}
+
+					// Successfully parsed
+					const statement = result.output;
+
+					if (statement.statementId === statementId) return;
+
+					switch (change.type) {
+						case 'added':
+						case 'modified':
+							store.dispatch(setStatement(statement));
+							break;
+						case 'removed':
+							store.dispatch(deleteStatement(statement.statementId));
+							break;
+					}
+				});
 			},
-			(error) => console.error('Error in all sub-statements listener:', error),
-			'query'
+			(error) =>
+				logError(error, {
+					operation: 'statements.listenToStatements.unknown',
+					metadata: { message: 'Error in all sub-statements listener:' },
+				}),
+			'query',
 		);
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'statements.listenToStatements.unknown' });
 
 		return (): void => {
 			return;
@@ -441,14 +448,14 @@ return;
 }
 export const listenToUserSuggestions = (
 	statementId: string | undefined,
-	userId: string | undefined
+	userId: string | undefined,
 ): Unsubscribe => {
 	try {
 		const dispatch = store.dispatch;
 		if (!statementId) throw new Error('Statement id is undefined');
 		if (!userId) throw new Error('User id is undefined');
 
-		const statementsRef = collection(FireStore, Collections.statements);
+		const statementsRef = createCollectionRef(Collections.statements);
 
 		// Query for options created by the user under this statement
 		const q = query(
@@ -456,13 +463,13 @@ export const listenToUserSuggestions = (
 			where('parentId', '==', statementId),
 			where('creatorId', '==', userId),
 			where('statementType', '==', StatementType.option),
-			orderBy('createdAt', 'desc')
+			orderBy('createdAt', 'desc'),
 		);
 
 		const listenerKey = generateListenerKey(
 			'user-suggestions',
 			'statement',
-			`${statementId}-${userId}`
+			`${statementId}-${userId}`,
 		);
 
 		let isFirstCall = true;
@@ -475,7 +482,8 @@ export const listenToUserSuggestions = (
 					const userOptions: Statement[] = [];
 
 					statementsDB.forEach((doc) => {
-						const statement = doc.data() as Statement;
+						// Normalize data to remove non-serializable values (like VectorValue embeddings)
+						const statement = normalizeStatementData(doc.data()) as Statement;
 						userOptions.push(statement);
 					});
 
@@ -488,7 +496,8 @@ export const listenToUserSuggestions = (
 				} else {
 					// Handle individual changes after initial load
 					statementsDB.docChanges().forEach((change) => {
-						const statement = change.doc.data() as Statement;
+						// Normalize data to remove non-serializable values (like VectorValue embeddings)
+						const statement = normalizeStatementData(change.doc.data()) as Statement;
 
 						if (change.type === 'added' || change.type === 'modified') {
 							dispatch(setStatement(statement));
@@ -498,22 +507,32 @@ export const listenToUserSuggestions = (
 					});
 				}
 			},
-			(error) => console.error('Error listening to user suggestions:', error),
-			'query'
+			(error) =>
+				logError(error, {
+					operation: 'statements.listenToStatements.unknown',
+					metadata: { message: 'Error listening to user suggestions:' },
+				}),
+			'query',
 		);
 	} catch (error) {
-		console.error('Error setting up user suggestions listener:', error);
+		logError(error, {
+			operation: 'statements.listenToStatements.unknown',
+			metadata: { message: 'Error setting up user suggestions listener:' },
+		});
 
 		return () => {};
 	}
 };
 
+// Maximum number of descendants to load at once for performance
+const MAX_DESCENDANTS_LIMIT = 200;
+
 export function listenToAllDescendants(statementId: string): Unsubscribe {
 	try {
-		const statementsRef = collection(FireStore, Collections.statements);
+		const statementsRef = createCollectionRef(Collections.statements);
 		// Query ONLY for questions, groups, and options (not any other types)
 		// Wrap in and() as required by Firestore for composite filters
-		// REMOVED LIMIT - now loads all descendants for completeness
+		// Added limit to prevent loading too many documents at once
 		const q = query(
 			statementsRef,
 			and(
@@ -521,18 +540,14 @@ export function listenToAllDescendants(statementId: string): Unsubscribe {
 				or(
 					where('statementType', '==', StatementType.question),
 					where('statementType', '==', StatementType.group),
-					where('statementType', '==', StatementType.option)
-				)
-			)
-			// NOTE: Removed limit(50) to ensure all descendants are loaded
-			// For very large trees, consider implementing pagination in the UI layer
+					where('statementType', '==', StatementType.option),
+				),
+			),
+			orderBy('createdAt', 'desc'),
+			limit(MAX_DESCENDANTS_LIMIT),
 		);
 
-		const listenerKey = generateListenerKey(
-			'all-descendants',
-			'statement',
-			statementId
-		);
+		const listenerKey = generateListenerKey('all-descendants', 'statement', statementId);
 
 		// Use batched updates for better performance
 		let isFirstBatch = true;
@@ -547,7 +562,7 @@ export function listenToAllDescendants(statementId: string): Unsubscribe {
 					// Process the initial batch of statements all at once
 					statementsDB.forEach((doc) => {
 						try {
-							const statement = parse(StatementSchema, convertTimestampsToMillis(doc.data()));
+							const statement = parse(StatementSchema, normalizeStatementData(doc.data()));
 							statements.push(statement);
 							loadedCount++;
 						} catch (error) {
@@ -556,8 +571,8 @@ export function listenToAllDescendants(statementId: string): Unsubscribe {
 								statementId: doc.id,
 								metadata: {
 									parentStatementId: statementId,
-									loadedCount
-								}
+									loadedCount,
+								},
 							});
 						}
 					});
@@ -565,7 +580,9 @@ export function listenToAllDescendants(statementId: string): Unsubscribe {
 					// Dispatch all statements at once instead of one by one
 					if (statements.length > 0) {
 						store.dispatch(setStatements(statements));
-						console.info(`[listenToAllDescendants] Loaded ${statements.length} descendants for statement ${statementId}`);
+						console.info(
+							`[listenToAllDescendants] Loaded ${statements.length} descendants for statement ${statementId}`,
+						);
 					}
 
 					isFirstBatch = false;
@@ -575,7 +592,7 @@ export function listenToAllDescendants(statementId: string): Unsubscribe {
 
 					changes.forEach((change) => {
 						try {
-							const statement = parse(StatementSchema, convertTimestampsToMillis(change.doc.data()));
+							const statement = parse(StatementSchema, normalizeStatementData(change.doc.data()));
 
 							if (change.type === 'added' || change.type === 'modified') {
 								store.dispatch(setStatement(statement));
@@ -589,8 +606,8 @@ export function listenToAllDescendants(statementId: string): Unsubscribe {
 								metadata: {
 									parentStatementId: statementId,
 									changeType: change.type,
-									loadedCount
-								}
+									loadedCount,
+								},
 							});
 						}
 					});
@@ -601,20 +618,245 @@ export function listenToAllDescendants(statementId: string): Unsubscribe {
 					operation: 'listenToAllDescendants.listener',
 					metadata: {
 						parentStatementId: statementId,
-						loadedCount
-					}
+						loadedCount,
+					},
 				});
 			},
-			'query'
+			'query',
 		);
 	} catch (error) {
 		logError(error, {
 			operation: 'listenToAllDescendants.setup',
-			metadata: { parentStatementId: statementId }
+			metadata: { parentStatementId: statementId },
 		});
 
 		return (): void => {
 			return;
 		};
+	}
+}
+
+/**
+ * Listen to ALL descendant types for the tree view (no statementType filter).
+ * Unlike listenToAllDescendants which filters by question/group/option,
+ * this loads all types including plain statements (chat messages).
+ */
+export function listenToTreeDescendants(
+	statementId: string,
+	queryLimit = MAX_DESCENDANTS_LIMIT,
+): Unsubscribe {
+	try {
+		const statementsRef = createCollectionRef(Collections.statements);
+		const q = query(
+			statementsRef,
+			where('parents', 'array-contains', statementId),
+			orderBy('createdAt', 'desc'),
+			limit(queryLimit),
+		);
+
+		const listenerKey = generateListenerKey('tree-descendants', 'statement', statementId);
+
+		let isFirstBatch = true;
+		const statementsArr: Statement[] = [];
+		let loadedCount = 0;
+
+		return createManagedCollectionListener(
+			q,
+			listenerKey,
+			(statementsDB) => {
+				if (isFirstBatch) {
+					statementsDB.forEach((doc) => {
+						const stmt = normalizeStatementData(doc.data()) as Statement;
+						statementsArr.push(stmt);
+						loadedCount++;
+					});
+
+					if (statementsArr.length > 0) {
+						store.dispatch(setStatements(statementsArr));
+						console.info(
+							`[listenToTreeDescendants] Loaded ${statementsArr.length} descendants for statement ${statementId}`,
+						);
+					}
+
+					isFirstBatch = false;
+				} else {
+					const changes = statementsDB.docChanges();
+
+					changes.forEach((change) => {
+						const stmt = normalizeStatementData(change.doc.data()) as Statement;
+
+						if (change.type === 'added' || change.type === 'modified') {
+							store.dispatch(setStatement(stmt));
+						} else if (change.type === 'removed') {
+							store.dispatch(deleteStatement(stmt.statementId));
+						}
+					});
+				}
+			},
+			(error) => {
+				logError(error, {
+					operation: 'listenToTreeDescendants.listener',
+					metadata: {
+						parentStatementId: statementId,
+						loadedCount,
+					},
+				});
+			},
+			'query',
+		);
+	} catch (error) {
+		logError(error, {
+			operation: 'listenToTreeDescendants.setup',
+			metadata: { parentStatementId: statementId },
+		});
+
+		return (): void => {
+			return;
+		};
+	}
+}
+
+/**
+ * Listen to all statements in a discussion tree using topParentId.
+ * More reliable than 'parents array-contains' because topParentId is set
+ * during statement creation, while the parents array may be missing on
+ * older statements.
+ */
+export function listenToTreeByTopParent(
+	topParentId: string,
+	queryLimit = MAX_DESCENDANTS_LIMIT,
+): Unsubscribe {
+	try {
+		const statementsRef = createCollectionRef(Collections.statements);
+		const q = query(
+			statementsRef,
+			where('topParentId', '==', topParentId),
+			orderBy('createdAt', 'desc'),
+			limit(queryLimit),
+		);
+
+		const listenerKey = generateListenerKey('tree-by-top-parent', 'statement', topParentId);
+
+		let isFirstBatch = true;
+		const statementsArr: Statement[] = [];
+
+		return createManagedCollectionListener(
+			q,
+			listenerKey,
+			(statementsDB) => {
+				if (isFirstBatch) {
+					statementsDB.forEach((doc) => {
+						try {
+							const stmt = normalizeStatementData(doc.data()) as Statement;
+							statementsArr.push(stmt);
+						} catch (error) {
+							logError(error, {
+								operation: 'listenToTreeByTopParent.parseInitial',
+								statementId: doc.id,
+								metadata: { topParentId },
+							});
+						}
+					});
+
+					if (statementsArr.length > 0) {
+						store.dispatch(setStatements(statementsArr));
+						console.info(
+							`[listenToTreeByTopParent] Loaded ${statementsArr.length} statements for tree ${topParentId}`,
+						);
+					}
+
+					isFirstBatch = false;
+				} else {
+					const changes = statementsDB.docChanges();
+
+					changes.forEach((change) => {
+						try {
+							const stmt = normalizeStatementData(change.doc.data()) as Statement;
+
+							if (change.type === 'added' || change.type === 'modified') {
+								store.dispatch(setStatement(stmt));
+							} else if (change.type === 'removed') {
+								store.dispatch(deleteStatement(stmt.statementId));
+							}
+						} catch (error) {
+							logError(error, {
+								operation: 'listenToTreeByTopParent.processChange',
+								statementId: change.doc.id,
+								metadata: { topParentId, changeType: change.type },
+							});
+						}
+					});
+				}
+			},
+			(error) => {
+				logError(error, {
+					operation: 'listenToTreeByTopParent.listener',
+					metadata: { topParentId },
+				});
+			},
+			'query',
+		);
+	} catch (error) {
+		logError(error, {
+			operation: 'listenToTreeByTopParent.setup',
+			metadata: { topParentId },
+		});
+
+		return (): void => {
+			return;
+		};
+	}
+}
+
+/**
+ * Fetch older tree descendants beyond the initial real-time listener.
+ * Uses the same `parents array-contains` query but with a cursor.
+ */
+export async function fetchOlderTreeDescendants(
+	statementId: string,
+	oldestCreatedAt: number,
+	batchSize = 50,
+): Promise<{ statements: Statement[]; hasMore: boolean }> {
+	try {
+		const statementsRef = createCollectionRef(Collections.statements);
+		const q = query(
+			statementsRef,
+			where('parents', 'array-contains', statementId),
+			orderBy('createdAt', 'desc'),
+			startAfter(oldestCreatedAt),
+			limit(batchSize + 1),
+		);
+
+		const snapshot = await getDocs(q);
+		const statements: Statement[] = [];
+
+		snapshot.forEach((doc) => {
+			try {
+				const stmt = parse(StatementSchema, normalizeStatementData(doc.data()));
+				statements.push(stmt);
+			} catch (error) {
+				logError(error, {
+					operation: 'fetchOlderTreeDescendants.parse',
+					statementId: doc.id,
+				});
+			}
+		});
+
+		const hasMore = statements.length > batchSize;
+		const resultStatements = hasMore ? statements.slice(0, batchSize) : statements;
+
+		if (resultStatements.length > 0) {
+			store.dispatch(setStatements(resultStatements));
+		}
+
+		return { statements: resultStatements, hasMore };
+	} catch (error) {
+		logError(error, {
+			operation: 'fetchOlderTreeDescendants',
+			statementId,
+			metadata: { oldestCreatedAt, batchSize },
+		});
+
+		return { statements: [], hasMore: false };
 	}
 }

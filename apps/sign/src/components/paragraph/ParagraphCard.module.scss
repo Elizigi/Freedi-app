@@ -1,0 +1,993 @@
+// Paragraph card - styled as regular flowing text with progressive disclosure
+// Interaction buttons are hidden by default and revealed on hover/tap
+
+.card {
+  position: relative;
+  padding: 0.125rem 0 0.125rem 0.75rem; // Minimal vertical padding, left space for indicator
+  transition: background-color 0.2s ease;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  overflow: visible; // Allow comment badge to overflow
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
+
+  // Hover effect to indicate interactivity (desktop) - more visible for accessibility
+  @media (hover: hover) {
+    &:hover {
+      background-color: rgba(95, 136, 229, 0.12); // Increased from 0.04 for better visibility
+
+      .interactionWrapper {
+        opacity: 1;
+        max-height: 60px;
+        margin-top: var(--spacing-xs);
+        pointer-events: auto;
+      }
+
+      .stateIndicator {
+        width: 5px; // Increased from 3px
+      }
+    }
+  }
+
+  // Focus state for keyboard navigation
+  &:focus-visible {
+    outline: 2px solid var(--btn-primary);
+    outline-offset: 2px;
+  }
+
+  // Expanded state (tap on mobile or click)
+  &.expanded {
+    background-color: rgba(95, 136, 229, 0.1); // Slightly more visible
+
+    .interactionWrapper {
+      opacity: 1;
+      max-height: 60px;
+      margin-top: var(--spacing-xs);
+      pointer-events: auto;
+    }
+
+    .stateIndicator {
+      width: 5px; // Increased from 3px
+    }
+  }
+}
+
+// Content wrapper for proper layout
+.contentWrapper {
+  position: relative;
+
+  // When numbered, use flex to keep number and content on the same line
+  &.numbered {
+    display: flex;
+    align-items: baseline;
+    gap: 0.3em;
+  }
+}
+
+.content {
+  line-height: 1.7;
+  color: var(--text-body);
+  margin: 0;
+  font-size: var(--p-font-size);
+  user-select: text; // Allow text selection
+  cursor: text; // Show text cursor when hovering over content
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+  max-width: 100%;
+
+  // Inline formatting styles from Google Docs import
+  strong {
+    font-weight: 700;
+  }
+
+  em {
+    font-style: italic;
+  }
+
+  u {
+    text-decoration: underline;
+  }
+
+  s {
+    text-decoration: line-through;
+  }
+}
+
+// Visual state indicator - line on the left (wider for better visibility)
+.stateIndicator {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px; // Increased from 2px for better visibility (accessibility)
+  background: var(--border-light);
+  border-radius: var(--radius-full);
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+// Interaction wrapper - hidden by default, visible on hover/tap or when enhanced visibility enabled
+.interactionWrapper {
+  opacity: 0;
+  max-height: 0;
+  margin-top: 0;
+  overflow: visible; // Allow badge to overflow
+  padding-inline-end: 8px; // Space for comment count badge
+  padding-top: 4px; // Space for badge overflow at top
+  transition:
+    opacity 0.2s ease,
+    max-height 0.2s ease,
+    margin-top 0.2s ease;
+  pointer-events: none;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+
+  // Enhanced visibility mode - show ghosted buttons always (admin-controlled per document)
+  &.alwaysVisible {
+    opacity: 0.4;
+    max-height: 60px;
+    margin-top: var(--spacing-xs);
+    pointer-events: auto;
+  }
+}
+
+// Default paragraph type
+.type-paragraph .content {
+  font-size: var(--p-font-size);
+  color: var(--text-body);
+}
+
+// Heading types - keep them distinctive
+// Headings: make inner <p> tags inline so numbering stays on the same line
+// (the editor wraps content in <p> tags which are block-level)
+.type-h1,
+.type-h2,
+.type-h3,
+.type-h4,
+.type-h5,
+.type-h6 {
+  .content p {
+    display: inline;
+    margin: 0;
+  }
+}
+
+.type-h1 {
+  padding-top: var(--spacing-md);
+  padding-bottom: var(--spacing-xs);
+
+  .content {
+    font-size: var(--h1-font-size);
+    font-weight: 700;
+    color: var(--text-primary);
+  }
+}
+
+.type-h2 {
+  padding-top: var(--spacing-sm);
+
+  .content {
+    font-size: var(--h2-font-size);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+}
+
+.type-h3 {
+  padding-top: var(--spacing-xs);
+
+  .content {
+    font-size: var(--h3-font-size);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+}
+
+.type-h4 .content {
+  font-size: var(--h4-font-size);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.type-h5 .content {
+  font-size: var(--h5-font-size);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.type-h6 .content {
+  font-size: var(--h6-font-size);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+// Inline number prefix (e.g., "1.2.3.") rendered as a separate flex item
+// Inherits heading styles from parent card type so number matches the heading
+.inlineNumber {
+  user-select: none; // Don't include in copy/paste
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.type-h1 .inlineNumber {
+  font-size: var(--h1-font-size);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.type-h2 .inlineNumber {
+  font-size: var(--h2-font-size);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.type-h3 .inlineNumber {
+  font-size: var(--h3-font-size);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.type-h4 .inlineNumber {
+  font-size: var(--h4-font-size);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.type-h5 .inlineNumber {
+  font-size: var(--h5-font-size);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.type-h6 .inlineNumber {
+  font-size: var(--h6-font-size);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+// List item type
+.listItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  width: 100%;
+}
+
+.bullet {
+  color: var(--text-secondary);
+  font-size: 1.2em;
+  line-height: 1.5;
+  flex-shrink: 0;
+}
+
+.type-li .content {
+  margin: 0;
+  flex: 1; // Take remaining space after bullet
+}
+
+// Table type
+.tableWrapper {
+  margin: 0.5rem 0;
+  overflow-x: auto;
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--card-default, #fff);
+    font-size: var(--p-font-size);
+
+    th,
+    td {
+      border: 1px solid var(--border-light, #e0e0e0);
+      padding: 0.5rem 0.75rem;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: var(--background, #f5f5f5);
+      font-weight: 600;
+    }
+
+    tr:hover {
+      background: rgba(0, 0, 0, 0.02);
+    }
+  }
+}
+
+.type-table {
+  padding-top: var(--spacing-sm);
+  padding-bottom: var(--spacing-sm);
+}
+
+// Image type
+.type-image {
+  padding-top: var(--spacing-sm);
+  padding-bottom: var(--spacing-sm);
+}
+
+.imageWrapper {
+  margin: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.image {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  display: block;
+}
+
+.imageCaption {
+  margin-top: var(--spacing-xs);
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  text-align: center;
+  font-style: italic;
+}
+
+// Alt text warning for admin (accessibility)
+.altWarning {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: var(--spacing-xs);
+  padding: 6px 12px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: var(--radius-sm);
+  color: #c2410c;
+  font-size: 0.813rem;
+  font-weight: 500;
+
+  svg {
+    flex-shrink: 0;
+  }
+}
+
+// Approval states - shown via state indicator
+.pending {
+  .stateIndicator {
+    background: var(--border-light); // Gray for no action
+  }
+}
+
+// User has interacted (commented or evaluated) but not approved/rejected
+.interacted {
+  .stateIndicator {
+    background: var(--warning); // Orange for interacted but not approved/rejected
+    width: 3px;
+  }
+}
+
+.approved {
+  .stateIndicator {
+    background: var(--agree);
+    width: 3px;
+  }
+}
+
+.rejected {
+  .stateIndicator {
+    background: var(--disagree);
+    width: 3px;
+  }
+}
+
+// Heat map backgrounds (legacy admin view)
+.heat-low {
+  background: var(--heat-low);
+}
+
+.heat-medium {
+  background: var(--heat-medium);
+}
+
+.heat-high {
+  background: var(--heat-high);
+}
+
+// New Heat Map Integration - Background colors by type and level
+// Approval heat map
+.heatmap-approval {
+  &.heatmap-level-1 {
+    background: var(--heat-approval-1);
+    .stateIndicator {
+      background: var(--heat-approval-border);
+      width: 2px;
+    }
+  }
+  &.heatmap-level-2 {
+    background: var(--heat-approval-2);
+    .stateIndicator {
+      background: var(--heat-approval-border);
+      width: 3px;
+    }
+  }
+  &.heatmap-level-3 {
+    background: var(--heat-approval-3);
+    .stateIndicator {
+      background: var(--heat-approval-border);
+      width: 3px;
+    }
+  }
+  &.heatmap-level-4 {
+    background: var(--heat-approval-4);
+    .stateIndicator {
+      background: var(--heat-approval-border);
+      width: 4px;
+    }
+  }
+  &.heatmap-level-5 {
+    background: var(--heat-approval-5);
+    .stateIndicator {
+      background: var(--heat-approval-border);
+      width: 5px;
+    }
+  }
+}
+
+// Comments heat map
+.heatmap-comments {
+  &.heatmap-level-1 {
+    background: var(--heat-comments-1);
+    .stateIndicator {
+      background: var(--heat-comments-border);
+      width: 2px;
+    }
+  }
+  &.heatmap-level-2 {
+    background: var(--heat-comments-2);
+    .stateIndicator {
+      background: var(--heat-comments-border);
+      width: 3px;
+    }
+  }
+  &.heatmap-level-3 {
+    background: var(--heat-comments-3);
+    .stateIndicator {
+      background: var(--heat-comments-border);
+      width: 3px;
+    }
+  }
+  &.heatmap-level-4 {
+    background: var(--heat-comments-4);
+    .stateIndicator {
+      background: var(--heat-comments-border);
+      width: 4px;
+    }
+  }
+  &.heatmap-level-5 {
+    background: var(--heat-comments-5);
+    .stateIndicator {
+      background: var(--heat-comments-border);
+      width: 5px;
+    }
+  }
+}
+
+// Rating heat map
+.heatmap-rating {
+  &.heatmap-level-1 {
+    background: var(--heat-rating-1);
+    .stateIndicator {
+      background: var(--heat-rating-border);
+      width: 2px;
+    }
+  }
+  &.heatmap-level-2 {
+    background: var(--heat-rating-2);
+    .stateIndicator {
+      background: var(--heat-rating-border);
+      width: 3px;
+    }
+  }
+  &.heatmap-level-3 {
+    background: var(--heat-rating-3);
+    .stateIndicator {
+      background: var(--heat-rating-border);
+      width: 3px;
+    }
+  }
+  &.heatmap-level-4 {
+    background: var(--heat-rating-4);
+    .stateIndicator {
+      background: var(--heat-rating-border);
+      width: 4px;
+    }
+  }
+  &.heatmap-level-5 {
+    background: var(--heat-rating-5);
+    .stateIndicator {
+      background: var(--heat-rating-border);
+      width: 5px;
+    }
+  }
+}
+
+// Viewership heat map
+.heatmap-viewership {
+  &.heatmap-level-1 {
+    background: var(--heat-viewership-1);
+    .stateIndicator {
+      background: var(--heat-viewership-border);
+      width: 2px;
+    }
+  }
+  &.heatmap-level-2 {
+    background: var(--heat-viewership-2);
+    .stateIndicator {
+      background: var(--heat-viewership-border);
+      width: 3px;
+    }
+  }
+  &.heatmap-level-3 {
+    background: var(--heat-viewership-3);
+    .stateIndicator {
+      background: var(--heat-viewership-border);
+      width: 3px;
+    }
+  }
+  &.heatmap-level-4 {
+    background: var(--heat-viewership-4);
+    .stateIndicator {
+      background: var(--heat-viewership-border);
+      width: 4px;
+    }
+  }
+  &.heatmap-level-5 {
+    background: var(--heat-viewership-5);
+    .stateIndicator {
+      background: var(--heat-viewership-border);
+      width: 5px;
+    }
+  }
+}
+
+// Heat map value badge
+.heatBadge {
+  position: absolute;
+  top: var(--spacing-xs);
+  inset-inline-end: var(--spacing-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--text-body);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-sm);
+  z-index: 1;
+  animation: fadeIn 0.2s ease-out;
+
+  // Variant colors
+  [data-heat-type="approval"] & {
+    color: var(--heat-approval-border);
+    border: 1px solid var(--heat-approval-border);
+  }
+
+  [data-heat-type="comments"] & {
+    color: var(--heat-comments-border);
+    border: 1px solid var(--heat-comments-border);
+  }
+
+  [data-heat-type="rating"] & {
+    color: var(--heat-rating-border);
+    border: 1px solid var(--heat-rating-border);
+  }
+
+  [data-heat-type="viewership"] & {
+    color: var(--heat-viewership-border);
+    border: 1px solid var(--heat-viewership-border);
+  }
+}
+
+// Consensus badge - shows approval statistics
+.consensusBadge {
+  position: absolute;
+  top: calc(var(--spacing-xs) + 28px); // Below heat badge if it exists
+  inset-inline-end: var(--spacing-xs);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-body);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--btn-primary);
+  z-index: 1;
+  animation: fadeIn 0.2s ease-out;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+
+  svg {
+    flex-shrink: 0;
+    color: var(--btn-primary);
+  }
+
+  .voterCount {
+    font-size: 0.65rem;
+    opacity: 0.7;
+    margin-inline-start: 2px;
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+// Admin info badge
+.adminInfo {
+  position: absolute;
+  top: var(--spacing-xs);
+  inset-inline-end: var(--spacing-xs);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: var(--text-caption);
+  opacity: 0.6;
+}
+
+// Responsive adjustments
+@media (max-width: 600px) {
+  .card {
+    padding-inline-start: 1rem; // Increased space for state indicator on mobile (16px)
+  }
+
+  .type-h1 .content,
+  .type-h1 .inlineNumber {
+    font-size: 1.4rem;
+  }
+
+  .type-h2 .content,
+  .type-h2 .inlineNumber {
+    font-size: 1.2rem;
+  }
+
+  .stateIndicator {
+    width: 4px; // Keep same width on mobile for consistency
+  }
+}
+
+// TOC scroll target highlight animation
+// Applied via class when user clicks a TOC item
+.card {
+  &:global(.toc-scroll-target) {
+    animation: tocHighlight 2s ease-out;
+  }
+}
+
+@keyframes tocHighlight {
+  0% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5);
+  }
+  20% {
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.3);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+  }
+}
+
+// Reduced motion support
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .interactionWrapper,
+  .stateIndicator {
+    transition: none;
+  }
+
+  .card:global(.toc-scroll-target) {
+    animation: none;
+  }
+}
+
+/* RTL Support - using data-text-dir attribute for document-specific direction
+   This is separate from the root HTML dir attribute (which is based on UI language) */
+:global([data-text-dir="rtl"]) {
+  .card {
+    padding-left: 0;
+    padding-right: 0.75rem;
+    direction: rtl;
+    text-align: right;
+  }
+
+  .stateIndicator {
+    left: auto;
+    right: 0;
+  }
+
+  .content {
+    text-align: right;
+  }
+
+  .listItem {
+    direction: rtl; // This naturally reverses flex order and aligns to right
+    text-align: right;
+  }
+
+  // RTL list item content
+  .type-li .content {
+    direction: rtl;
+    text-align: right;
+    unicode-bidi: plaintext; // Allows mixed LTR/RTL content to display correctly
+  }
+
+  .nonInteractiveLabel {
+    flex-direction: row-reverse;
+  }
+
+  .adminControls {
+    flex-direction: row-reverse;
+  }
+
+  .adminToggle {
+    flex-direction: row-reverse;
+  }
+
+  .adminInfo {
+    left: var(--spacing-xs);
+    right: auto;
+    inset-inline-end: auto;
+    inset-inline-start: var(--spacing-xs);
+    flex-direction: row-reverse;
+  }
+
+  .heatBadge {
+    left: var(--spacing-xs);
+    right: auto;
+    inset-inline-end: auto;
+    inset-inline-start: var(--spacing-xs);
+  }
+
+  .consensusBadge {
+    left: var(--spacing-xs);
+    right: auto;
+    inset-inline-end: auto;
+    inset-inline-start: var(--spacing-xs);
+  }
+
+  .tableWrapper {
+    table {
+      th,
+      td {
+        text-align: right;
+      }
+    }
+  }
+
+  .interactionWrapper {
+    direction: rtl;
+  }
+
+  @media (max-width: 600px) {
+    .card {
+      padding-inline-end: 0; // Left side in RTL
+      padding-inline-start: 1rem; // Right side in RTL - where the indicator is (16px)
+    }
+  }
+}
+
+/* LTR Support - explicitly set LTR even if root HTML is RTL */
+:global([data-text-dir="ltr"]) {
+  .card {
+    padding-right: 0;
+    padding-left: 0.75rem;
+    direction: ltr;
+    text-align: left;
+  }
+
+  .stateIndicator {
+    right: auto;
+    left: 0;
+  }
+
+  .content {
+    text-align: left;
+  }
+
+  .listItem {
+    flex-direction: row;
+    direction: ltr;
+    text-align: left;
+  }
+
+  // LTR list item content
+  .type-li .content {
+    direction: ltr;
+    text-align: left;
+    unicode-bidi: plaintext;
+  }
+
+  .nonInteractiveLabel {
+    flex-direction: row;
+  }
+
+  .adminControls {
+    flex-direction: row;
+  }
+
+  .adminToggle {
+    flex-direction: row;
+  }
+
+  .adminInfo {
+    right: var(--spacing-xs);
+    left: auto;
+    inset-inline-start: auto;
+    inset-inline-end: var(--spacing-xs);
+    flex-direction: row;
+  }
+
+  .heatBadge {
+    right: var(--spacing-xs);
+    left: auto;
+    inset-inline-start: auto;
+    inset-inline-end: var(--spacing-xs);
+  }
+
+  .consensusBadge {
+    right: var(--spacing-xs);
+    left: auto;
+    inset-inline-start: auto;
+    inset-inline-end: var(--spacing-xs);
+  }
+
+  .tableWrapper {
+    table {
+      th,
+      td {
+        text-align: left;
+      }
+    }
+  }
+
+  .interactionWrapper {
+    direction: ltr;
+  }
+
+  @media (max-width: 600px) {
+    .card {
+      padding-inline-start: 1rem; // Increased to prevent overlap (16px)
+      padding-inline-end: 0;
+    }
+  }
+}
+
+// Non-interactive paragraph styles
+.nonInteractive {
+  cursor: default;
+  opacity: 0.85;
+
+  .stateIndicator {
+    background: var(--text-caption);
+    width: 2px;
+    opacity: 0.4;
+  }
+
+  .content {
+    color: var(--text-secondary);
+  }
+
+  // Disable hover effects
+  @media (hover: hover) {
+    &:hover {
+      background-color: transparent;
+
+      .stateIndicator {
+        width: 2px;
+      }
+    }
+  }
+
+  &.expanded {
+    background-color: transparent;
+  }
+}
+
+// Non-interactive with normal style (admin setting to keep normal text color)
+.nonInteractiveNormal {
+  opacity: 1;
+
+  .stateIndicator {
+    opacity: 0.6;
+  }
+
+  .content {
+    color: var(--text-body);
+  }
+}
+
+// Non-interactive label for regular users
+.nonInteractiveLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: var(--spacing-xs);
+  padding: 4px 8px;
+  font-size: 0.7rem;
+  color: var(--text-caption);
+  background: var(--background-alt, #f5f5f5);
+  border-radius: var(--radius-sm);
+  width: fit-content;
+
+  svg {
+    opacity: 0.6;
+  }
+}
+
+// Admin controls container
+.adminControls {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-xs);
+  padding-top: var(--spacing-xs);
+  border-top: 1px dashed var(--border-light);
+}
+
+// Admin toggle button
+.adminToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--background-alt, #f5f5f5);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  color: var(--text-caption);
+  cursor: pointer;
+  transition: all 0.2s ease;
+
+  &:hover {
+    background: var(--border-light);
+    color: var(--text-body);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--btn-primary);
+    outline-offset: 2px;
+  }
+
+  // Active state (non-interactive mode enabled)
+  &.active {
+    background: var(--warning-light, #fff3e0);
+    border-color: var(--warning);
+    color: var(--warning-dark, #e65100);
+
+    svg {
+      stroke: var(--warning-dark, #e65100);
+    }
+  }
+
+  // Loading state
+  &.loading {
+    opacity: 0.6;
+    cursor: wait;
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+  }
+}
+
+.adminToggleText {
+  @media (max-width: 480px) {
+    display: none;
+  }
+}

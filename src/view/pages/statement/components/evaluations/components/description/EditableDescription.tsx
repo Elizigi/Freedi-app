@@ -1,16 +1,16 @@
 import { FC, useContext, useState } from 'react';
 import { StatementContext } from '@/view/pages/statement/StatementCont';
-import EditableStatement from '@/view/components/edit/EditableStatement';
 import { useEditPermission } from '@/controllers/hooks/useEditPermission';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
 import EditIcon from '@/assets/icons/editIcon.svg?react';
-import Text from '@/view/components/text/Text';
+import { DocumentEditModal, ParagraphsDisplay } from '@/view/components/richTextEditor';
+import { hasParagraphsContent } from '@/utils/paragraphUtils';
 import styles from './EditableDescription.module.scss';
 
 const EditableDescription: FC = () => {
 	const { t } = useTranslation();
 	const { statement } = useContext(StatementContext);
-	const [isInEditMode, setIsInEditMode] = useState(false);
+	const [isEditorOpen, setIsEditorOpen] = useState(false);
 
 	// Check if current user can edit (creator or admin)
 	const { canEdit } = useEditPermission(statement);
@@ -19,8 +19,10 @@ const EditableDescription: FC = () => {
 		return null;
 	}
 
-	// If no description and user can't edit, don't show anything
-	if (!statement.description && !canEdit) {
+	const hasParagraphs = hasParagraphsContent(statement.paragraphs);
+
+	// If no paragraphs and user can't edit, don't show anything
+	if (!hasParagraphs && !canEdit) {
 		return null;
 	}
 
@@ -28,47 +30,49 @@ const EditableDescription: FC = () => {
 	if (!canEdit) {
 		return (
 			<div className={styles.description}>
-				<Text description={statement.description} />
+				<ParagraphsDisplay statement={statement} />
 			</div>
 		);
 	}
 
-	// Editable mode for authorized users
+	// Editable mode for authorized users - click to open rich editor
+	// Use different class when empty to hide on mobile
+	const containerClass = hasParagraphs
+		? styles.editableDescription
+		: `${styles.editableDescription} ${styles.editableDescriptionEmpty}`;
+
 	return (
-		<div className={styles.editableDescription}>
-			<div className={styles.descriptionHeader}>
-				{!isInEditMode && (
+		<>
+			<button type="button" className={containerClass} onClick={() => setIsEditorOpen(true)}>
+				<div className={styles.descriptionHeader}>
 					<button
 						className={styles.editButton}
-						onClick={() => setIsInEditMode(true)}
+						onClick={(e) => {
+							e.stopPropagation();
+							setIsEditorOpen(true);
+						}}
 						aria-label={t('Edit description')}
 						title={t('Edit description')}
 					>
 						<EditIcon />
 						<span>{t('Edit Description')}</span>
 					</button>
-				)}
-			</div>
+				</div>
 
-			<div className={styles.descriptionContent}>
-				<EditableStatement
-					statement={statement}
-					variant="description"
-					multiline={true}
-					forceEditing={isInEditMode}
-					onEditStart={() => setIsInEditMode(true)}
-					onSaveSuccess={() => {
-						setIsInEditMode(false);
-					}}
-					onEditEnd={() => setIsInEditMode(false)}
-					placeholder={t('Add a description...')}
-					className={styles.description}
-					inputClassName={styles.descriptionInput}
-					textClassName={styles.descriptionText}
-					saveButtonClassName={styles.saveButton}
-				/>
-			</div>
-		</div>
+				{/* Only render content area if there's content, or hide placeholder on mobile */}
+				<div className={styles.descriptionContent}>
+					{hasParagraphs ? (
+						<ParagraphsDisplay statement={statement} />
+					) : (
+						<p className={styles.placeholder}>{t('Add a description...')}</p>
+					)}
+				</div>
+			</button>
+
+			{isEditorOpen && (
+				<DocumentEditModal statement={statement} onClose={() => setIsEditorOpen(false)} />
+			)}
+		</>
 	);
 };
 

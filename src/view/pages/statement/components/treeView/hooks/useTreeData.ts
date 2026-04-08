@@ -1,0 +1,223 @@
+import { useMemo } from 'react';
+import { useAppSelector } from '@/controllers/hooks/reduxHooks';
+import { Statement, StatementType, SortType } from '@freedi/shared-types';
+import { sortByConsensus } from '@/redux/utils/selectorFactories';
+import { createTreeViewSelector } from '@/redux/statements/treeViewSelectors';
+import { TreeFilterMode } from '../TreeFilterMode';
+
+interface UseTreeDataReturn {
+	childrenMap: Map<string, Statement[]>;
+	rootChildren: Statement[];
+	getChildren: (parentId: string) => Statement[];
+}
+
+export interface TreeDataOptions {
+	typeFilter?: readonly StatementType[];
+	sortType?: SortType;
+	onlySelectedOptions?: boolean;
+	filterMode?: TreeFilterMode;
+	userId?: string;
+	bookmarkedIds?: Set<string>;
+	randomSeed?: number;
+}
+
+const selectTreeView = createTreeViewSelector();
+
+/**
+ * Simple hash that turns a seed + string into a deterministic number.
+ * Used so that the same `t` param always produces the same card order.
+ */
+function seededHash(seed: number, str: string): number {
+	let hash = seed;
+	for (let i = 0; i < str.length; i++) {
+		hash = (hash * 31 + str.charCodeAt(i)) | 0;
+	}
+
+	return hash;
+}
+
+function applySortToStatements(
+	statements: Statement[],
+	sortType: SortType,
+	randomSeed?: number,
+): Statement[] {
+	const sorted = [...statements];
+	switch (sortType) {
+		case SortType.newest:
+			return sorted.sort((a, b) => b.createdAt - a.createdAt);
+		case SortType.mostUpdated:
+			return sorted.sort((a, b) => b.lastUpdate - a.lastUpdate);
+		case SortType.accepted:
+			return sorted.sort((a, b) => {
+				const aIsOption = a.statementType === StatementType.option ? 0 : 1;
+				const bIsOption = b.statementType === StatementType.option ? 0 : 1;
+				if (aIsOption !== bIsOption) return aIsOption - bIsOption;
+
+				return sortByConsensus(a, b);
+			});
+		case SortType.random: {
+			const seed = randomSeed ?? 0;
+
+			return sorted.sort(
+				(a, b) => seededHash(seed, a.statementId) - seededHash(seed, b.statementId),
+			);
+		}
+		case SortType.mostJoined:
+			return sorted.sort(
+				(a, b) => (b.evaluation?.sumPro || b.pro || 0) - (a.evaluation?.sumPro || a.pro || 0),
+			);
+		default:
+			return sorted;
+	}
+}
+
+/**
+ * Provides tree data from Redux with O(1) child lookups.
+ * Supports type filtering, sorting, and selected-only option filtering.
+ */
+export function useTreeData(statementId: string, options?: TreeDataOptions): UseTreeDataReturn {
+	const {
+		typeFilter,
+		sortType,
+		onlySelectedOptions,
+		filterMode,
+		userId,
+		bookmarkedIds,
+		randomSeed,
+	} = options || {};
+
+	const { childrenMap: fullChildrenMap, rootChildren: fullRootChildren } = useAppSelector((state) =>
+		selectTreeView(state, statementId),
+	);
+
+	// Build set of selected option IDs from all parent statements' results
+	const allStatements = useAppSelector((state) => state.statements.statements);
+	const selectedOptionIds = useMemo(() => {
+		if (!onlySelectedOptions) return undefined;
+
+		const ids = new Set<string>();
+		allStatements.forEach((stmt) => {
+			stmt.results?.forEach((r) => ids.add(r.statementId));
+		});
+
+		return ids;
+	}, [allStatements, onlySelectedOptions]);
+
+	const { childrenMap, rootChildren } = useMemo(() => {
+		let resultMap = fullChildrenMap;
+		let resultRoot = fullRootChildren;
+
+		if (typeFilter) {
+			const matchesFilter = (c: Statement): boolean => {
+				if (!typeFilter.includes(c.statementType)) return false;
+				if (
+					selectedOptionIds &&
+					c.statementType === StatementType.option &&
+					!selectedOptionIds.has(c.statementId)
+				)
+					return false;
+
+				return true;
+			};
+
+			// Build set of all matching statement IDs
+			const matchingIds = new Set<string>();
+			fullChildrenMap.forEach((children) => {
+				children.forEach((c) => {
+					if (matchesFilter(c)) matchingIds.add(c.statementId);
+				});
+			});
+			fullRootChildren.forEach((c) => {
+				if (matchesFilter(c)) matchingIds.add(c.statementId);
+			});
+
+			// Build filtered childrenMap: at root level only keep matching children,
+			// but under matching parents include ALL descendants (replies, sub-replies, etc.)
+			resultMap = new Map<string, Statement[]>();
+
+			// Collect all descendant IDs under matching parents
+			const descendantIds = new Set<string>(matchingIds);
+			let changed = true;
+			while (changed) {
+				changed = false;
+				fullChildrenMap.forEach((children, parentId) => {
+					if (descendantIds.has(parentId)) {
+						children.forEach((c) => {
+							if (!descendantIds.has(c.statementId)) {
+								descendantIds.add(c.statementId);
+								changed = true;
+							}
+						});
+					}
+				});
+			}
+
+			fullChildrenMap.forEach((children, parentId) => {
+				if (parentId === statementId) {
+					const filtered = children.filter((c) => matchingIds.has(c.statementId));
+					if (filtered.length > 0) resultMap.set(parentId, filtered);
+				} else if (descendantIds.has(parentId)) {
+					if (children.length > 0) resultMap.set(parentId, [...children]);
+				}
+			});
+
+			// Root children are the matching direct children of statementId
+			resultRoot = resultMap.get(statementId) || [];
+		} else if (selectedOptionIds) {
+			resultMap = new Map<string, Statement[]>();
+			fullChildrenMap.forEach((children, key) => {
+				const filtered = children.filter((c) => {
+					if (c.statementType === StatementType.option && !selectedOptionIds.has(c.statementId))
+						return false;
+
+					return true;
+				});
+				if (filtered.length > 0) resultMap.set(key, filtered);
+			});
+			resultRoot = fullRootChildren.filter((c) => {
+				if (c.statementType === StatementType.option && !selectedOptionIds.has(c.statementId))
+					return false;
+
+				return true;
+			});
+		}
+
+		// Apply sorting
+		if (sortType) {
+			const sortedMap = new Map<string, Statement[]>();
+			resultMap.forEach((children, key) => {
+				sortedMap.set(key, applySortToStatements(children, sortType, randomSeed));
+			});
+			resultRoot = applySortToStatements(resultRoot, sortType, randomSeed);
+			resultMap = sortedMap;
+		}
+
+		// Apply bookmark/mine filter
+		if (filterMode === TreeFilterMode.bookmarked && bookmarkedIds) {
+			resultRoot = resultRoot.filter((c) => bookmarkedIds.has(c.statementId));
+		} else if (filterMode === TreeFilterMode.mine && userId) {
+			resultRoot = resultRoot.filter((c) => c.creatorId === userId);
+		}
+
+		return { childrenMap: resultMap, rootChildren: resultRoot };
+	}, [
+		fullChildrenMap,
+		fullRootChildren,
+		typeFilter,
+		sortType,
+		selectedOptionIds,
+		statementId,
+		filterMode,
+		userId,
+		bookmarkedIds,
+		randomSeed,
+	]);
+
+	const getChildren = useMemo(() => {
+		return (parentId: string): Statement[] => {
+			return childrenMap.get(parentId) || [];
+		};
+	}, [childrenMap]);
+
+	return { childrenMap, rootChildren, getChildren };
+}

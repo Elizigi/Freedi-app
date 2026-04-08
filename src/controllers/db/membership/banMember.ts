@@ -1,11 +1,12 @@
-import { Role, Collections } from 'delib-npm';
-import { doc, getDoc } from 'firebase/firestore';
+import { Role } from '@freedi/shared-types';
+import { getDoc } from 'firebase/firestore';
 import { updateMemberRole } from '../subscriptions/setSubscriptions';
 import { removeUserEvaluations } from '../evaluation/removeUserEvaluations';
 import { getStatementFromDB } from '../statements/getStatement';
 import { getStatementSubscriptionId } from '@/controllers/general/helpers';
-import { FireStore } from '../config';
 import { canBanUser, getBanDisabledReason } from '@/helpers/roleHelpers';
+import { createSubscriptionRef } from '@/utils/firebaseUtils';
+import { logError } from '@/utils/errorHandling';
 
 /**
  * Bans a member from a statement by updating their role to banned
@@ -20,7 +21,7 @@ export async function banMember(
 	statementId: string,
 	userId: string,
 	reason: string,
-	removeVotes: boolean
+	removeVotes: boolean,
 ): Promise<void> {
 	try {
 		if (!statementId || !userId) {
@@ -33,7 +34,7 @@ export async function banMember(
 			throw new Error('Error getting subscription ID');
 		}
 
-		const subscriptionRef = doc(FireStore, Collections.statementsSubscribe, subscriptionId);
+		const subscriptionRef = createSubscriptionRef(subscriptionId);
 		const subscriptionDoc = await getDoc(subscriptionRef);
 
 		if (!subscriptionDoc.exists()) {
@@ -52,7 +53,7 @@ export async function banMember(
 			statementId,
 			userId,
 			reason,
-			removeVotes
+			removeVotes,
 		});
 
 		// 1. Update subscription role to Role.banned
@@ -70,11 +71,13 @@ export async function banMember(
 			userId,
 			reason,
 			votesRemoved: removeVotes,
-			bannedAt: new Date().toISOString()
+			bannedAt: new Date().toISOString(),
 		});
-
 	} catch (error) {
-		console.error('Error banning member:', error);
+		logError(error, {
+			operation: 'membership.banMember.unknown',
+			metadata: { message: 'Error banning member:' },
+		});
 		throw error;
 	}
 }
@@ -86,10 +89,7 @@ export async function banMember(
  * @param userId - The user ID to unban
  * @returns Promise<void>
  */
-export async function unbanMember(
-	statementId: string,
-	userId: string
-): Promise<void> {
+export async function unbanMember(statementId: string, userId: string): Promise<void> {
 	try {
 		if (!statementId || !userId) {
 			throw new Error('Statement ID and User ID are required to unban a member');
@@ -97,7 +97,7 @@ export async function unbanMember(
 
 		console.info('Unbanning member:', {
 			statementId,
-			userId
+			userId,
 		});
 
 		// Update subscription role back to Role.member
@@ -106,11 +106,13 @@ export async function unbanMember(
 		console.info('Member unbanned successfully:', {
 			statementId,
 			userId,
-			unbannedAt: new Date().toISOString()
+			unbannedAt: new Date().toISOString(),
 		});
-
 	} catch (error) {
-		console.error('Error unbanning member:', error);
+		logError(error, {
+			operation: 'membership.banMember.unbanMember',
+			metadata: { message: 'Error unbanning member:' },
+		});
 		throw error;
 	}
 }

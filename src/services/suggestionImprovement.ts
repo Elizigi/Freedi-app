@@ -1,5 +1,6 @@
-import firebaseConfig from "@/controllers/db/configKey";
-import { functionConfig } from "delib-npm";
+import firebaseConfig from '@/controllers/db/configKey';
+import { functionConfig } from '@freedi/shared-types';
+import { logError } from '@/utils/errorHandling';
 
 // Helper to get environment variables
 // In tests, babel-plugin-transform-vite-meta-env transforms import.meta.env to process.env
@@ -12,7 +13,7 @@ const getImproveSuggestionEndpoint = () => {
 	return location.hostname === 'localhost'
 		? `http://localhost:5001/${firebaseConfig.projectId}/${functionConfig.region}/improveSuggestion`
 		: getEnvVar('VITE_APP_IMPROVE_SUGGESTION_ENDPOINT') ||
-		  `https://${functionConfig.region}-${firebaseConfig.projectId}.cloudfunctions.net/improveSuggestion`;
+				`https://${functionConfig.region}-${firebaseConfig.projectId}.cloudfunctions.net/improveSuggestion`;
 };
 
 interface ImproveSuggestionRequest {
@@ -43,7 +44,7 @@ export async function improveSuggestion(
 	description?: string,
 	instructions?: string,
 	parentTitle?: string,
-	parentDescription?: string
+	parentDescription?: string,
 ): Promise<ImproveSuggestionResponse> {
 	try {
 		const endpoint = getImproveSuggestionEndpoint();
@@ -66,9 +67,7 @@ export async function improveSuggestion(
 
 		if (!response.ok) {
 			const errorData = await response.json().catch(() => ({}));
-			throw new Error(
-				errorData.message || `Failed to improve suggestion: ${response.statusText}`
-			);
+			throw new Error(errorData.message || `Failed to improve suggestion: ${response.statusText}`);
 		}
 
 		const data: ImproveSuggestionResponse = await response.json();
@@ -79,7 +78,10 @@ export async function improveSuggestion(
 
 		return data;
 	} catch (error) {
-		console.error('Error improving suggestion:', error);
+		logError(error, {
+			operation: 'services.suggestionImprovement.errorData',
+			metadata: { message: 'Error improving suggestion:' },
+		});
 		throw error;
 	}
 }
@@ -100,7 +102,7 @@ export async function improveSuggestionWithTimeout(
 	instructions?: string,
 	parentTitle?: string,
 	parentDescription?: string,
-	timeoutMs: number = 45000
+	timeoutMs: number = 45000,
 ): Promise<ImproveSuggestionResponse> {
 	const timeoutPromise = new Promise<never>((_, reject) => {
 		setTimeout(() => reject(new Error('Improvement request timed out')), timeoutMs);
@@ -113,7 +115,9 @@ export async function improveSuggestionWithTimeout(
 		]);
 	} catch (error) {
 		if (error instanceof Error && error.message === 'Improvement request timed out') {
-			console.error('Suggestion improvement timed out');
+			logError(new Error('Suggestion improvement timed out'), {
+				operation: 'services.suggestionImprovement.timeoutPromise',
+			});
 		}
 		throw error;
 	}

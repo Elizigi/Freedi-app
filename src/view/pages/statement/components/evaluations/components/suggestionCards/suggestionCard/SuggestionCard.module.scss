@@ -6,21 +6,162 @@
   border-radius: 4px;
   background-color: var(--inputBackground);
   box-shadow: 2px 2px 4px var(--shadow);
-  transition: all 1s ease-in-out;
   border-left: 8px solid white;
 
   width: 100%;
   box-sizing: border-box;
   gap: 0.4rem;
+  overflow-x: hidden; // Prevent horizontal overflow on mobile
 
-  @media screen and (max-width: 768px) {
-    margin: 0rem 2%;
-    width: 96%;
+  // Mobile: more compact layout
+  @media screen and (max-width: 600px) {
+    margin: 0;
+    width: 100%;
+    gap: 0.2rem;
+    border-radius: 6px;
+  }
+
+  // Tablet
+  @media screen and (min-width: 601px) and (max-width: 768px) {
+    margin: 0rem 1%;
+    width: 98%;
+    gap: 0.3rem;
   }
 
   &--hidden {
-    opacity: 0.5;
-    pointer-events: none;
+    // Isolate stacking context to prevent z-index leaking
+    isolation: isolate;
+
+    // Dashed border to clearly indicate hidden/draft state
+    border: 2px dashed var(--icons-disabled, #adb7cd);
+    border-left-width: 8px;
+    border-left-style: dashed;
+
+    // Subtle background tint to reinforce hidden state
+    background-color: rgba(173, 183, 205, 0.08);
+
+    // Apply opacity to content areas only, not the whole card
+    .main {
+      opacity: 0.6;
+    }
+
+    // Keep menu fully visible
+    .more {
+      opacity: 1;
+    }
+
+    // On hover, reduce opacity less to show it's interactive
+    &:hover .main {
+      opacity: 0.75;
+    }
+  }
+
+  // Hidden badge to explicitly show the card is hidden - clickable for admins
+  .hiddenBadge {
+    position: absolute;
+    top: -0.625rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.25rem 0.625rem;
+    background-color: var(--icons-disabled, #adb7cd);
+    color: white;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: 12px;
+    white-space: nowrap;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+    transition: all 0.2s ease;
+
+    svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+
+    // When clickable (admin), show interactive styling
+    &--clickable {
+      cursor: pointer;
+
+      &:hover {
+        background-color: var(--btn-primary);
+        transform: translateX(-50%) scale(1.05);
+        box-shadow: 0 3px 8px rgba(0, 0, 0, 0.2);
+      }
+
+      &:active {
+        transform: translateX(-50%) scale(0.98);
+      }
+    }
+  }
+
+  // Quick unhide button - appears on hover for admins
+  .quickUnhideBtn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    background-color: var(--btn-primary);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+
+    svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    &:hover {
+      background-color: var(--btn-primary-hover);
+      transform: scale(1.1);
+    }
+
+    &:active {
+      transform: scale(0.95);
+    }
+
+    // RTL support
+    [dir='rtl'] & {
+      right: auto;
+      left: 0.5rem;
+    }
+  }
+
+  // Show quick unhide button on card hover
+  &--hidden:hover .quickUnhideBtn {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  // Mobile: always show the button on hidden cards (no hover state)
+  @media screen and (max-width: 600px) {
+    &--hidden .quickUnhideBtn {
+      opacity: 1;
+      transform: scale(1);
+      width: 36px;
+      height: 36px;
+    }
+  }
+
+
+  // Elevated z-index when menu is open to ensure it appears above other cards
+  &--menu-open {
+    z-index: 100;
+    isolation: isolate;
   }
 
   // Special border for community cards
@@ -28,24 +169,151 @@
     border-left-color: rgba(139, 92, 246, 0.7);
   }
 
-  .selected-option {
-    color: white;
-    color: #57a193;
-    font-size: 0.8rem;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+  // Join status visual indicators
+  // Below minimum - needs more members (warning/reddish)
+  &--below-minimum {
+    border-left-color: var(--warning, #f59e0b);
+    background-color: rgba(245, 158, 11, 0.05);
 
-    width: 10px;
+    // Subtle pulsing effect to draw attention
+    animation: needsMembers 2s ease-in-out infinite;
+  }
 
-    div {
-      transform: rotate(270deg) translate(0, -0.35rem);
+  @keyframes needsMembers {
+    0%, 100% {
+      background-color: rgba(245, 158, 11, 0.05);
     }
+    50% {
+      background-color: rgba(245, 158, 11, 0.08);
+    }
+  }
+
+  // At or above minimum - healthy group (greenish)
+  &--above-minimum {
+    border-left-color: var(--approve, #4fab9a);
+    background-color: rgba(79, 171, 154, 0.05);
+  }
+
+  // Exceeds maximum - needs splitting (blue/info indicator for admin)
+  &--exceeds-maximum {
+    border-left-color: var(--btn-primary, #5f88e5);
+    background-color: rgba(95, 136, 229, 0.05);
+  }
+
+  // Join indicator pill showing member count
+  .joinIndicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.2rem 0.5rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background-color: var(--inputBackground);
+    color: var(--text-body);
+
+    &--warning {
+      background-color: rgba(245, 158, 11, 0.15);
+      color: var(--warning, #d97706);
+    }
+
+    &--success {
+      background-color: rgba(79, 171, 154, 0.15);
+      color: var(--approve, #059669);
+    }
+
+    &--exceeds {
+      background-color: rgba(95, 136, 229, 0.15);
+      color: var(--btn-primary, #5f88e5);
+    }
+  }
+
+  // Voting winner badge - floating pill at top corner
+  // Uses CSS logical properties for automatic RTL/LTR support
+  .votingWinnerBadge {
+    position: absolute;
+    top: -0.55rem;
+    inset-inline-end: 2.5rem; // Right in LTR, Left in RTL - offset to avoid menu icon
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    background: linear-gradient(135deg, var(--approve) 0%, #3d9b8a 100%);
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 600;
+    border-radius: 12px;
+    white-space: nowrap;
+    box-shadow:
+      0 2px 8px rgba(79, 171, 154, 0.35),
+      0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+    letter-spacing: 0.02em;
+
+    // Icon styling
+    svg {
+      width: 12px;
+      height: 12px;
+      flex-shrink: 0;
+      stroke-width: 2.5;
+    }
+
+    // Subtle hover effect
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow:
+        0 4px 12px rgba(79, 171, 154, 0.45),
+        0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    // Mobile: slightly smaller
+    @media screen and (max-width: 600px) {
+      top: -0.4rem;
+      inset-inline-end: 2rem;
+      padding: 0.2rem 0.4rem;
+      font-size: 0.65rem;
+      gap: 0.2rem;
+
+      svg {
+        width: 10px;
+        height: 10px;
+      }
+    }
+  }
+
+  // Add top margin and padding when card has voting winner badge to make space
+  &--hasVotingBadge {
+    margin-top: 0.75rem;
+
+    > .main {
+      padding-top: 2rem !important;
+
+      @media screen and (max-width: 600px) {
+        padding-top: 1.5rem !important;
+      }
+    }
+  }
+
+  // Legacy selected-option - keeping for backwards compatibility but hidden
+  .selected-option {
+    display: none;
   }
 
   .main {
     width: 100%;
     padding: 1rem 1rem 1rem 0rem;
+    box-sizing: border-box;
+
+    // Mobile: compact padding
+    @media screen and (max-width: 600px) {
+      padding: 0.625rem 0.625rem 0.625rem 0rem;
+    }
+
+    // Tablet
+    @media screen and (min-width: 601px) and (max-width: 768px) {
+      padding: 0.75rem 0.75rem 0.75rem 0rem;
+    }
 
     .info {
       color: var(--text-body);
@@ -74,9 +342,48 @@
           -webkit-box-orient: vertical;
           overflow: hidden;
           line-height: 1.4;
-          // Ensure text wraps properly around floated images
           overflow-wrap: break-word;
           word-wrap: break-word;
+          width: 100%;
+          box-sizing: border-box;
+
+          // Mobile: show more lines since no image takes space
+          @media screen and (max-width: 600px) {
+            -webkit-line-clamp: 5;
+            line-clamp: 5;
+            line-height: 1.35;
+            font-size: 0.9375rem;
+          }
+        }
+
+        // Expanded state - remove clamp and add scroll
+        .textContentExpanded {
+          display: block;
+          -webkit-line-clamp: unset;
+          line-clamp: unset;
+          -webkit-box-orient: unset;
+          max-height: 50vh;
+          overflow-y: auto;
+          overflow-x: hidden;
+
+          // Custom scrollbar styling
+          &::-webkit-scrollbar {
+            width: 6px;
+          }
+
+          &::-webkit-scrollbar-track {
+            background: var(--inputBackground);
+            border-radius: 3px;
+          }
+
+          &::-webkit-scrollbar-thumb {
+            background: var(--shadow);
+            border-radius: 3px;
+
+            &:hover {
+              background: var(--text-body);
+            }
+          }
         }
 
         p {
@@ -92,9 +399,21 @@
           align-items: center;
           justify-content: flex-end;
 
-          // Make buttons more compact on smaller screens
-          @media screen and (max-width: 768px) {
-            gap: 0.25rem;
+          // Mobile: more compact button layout
+          @media screen and (max-width: 600px) {
+            gap: 0.375rem;
+            margin-top: 0.375rem;
+
+            // Smaller buttons on mobile
+            button {
+              padding: 0.25rem 0.625rem;
+              font-size: 0.8125rem;
+            }
+          }
+
+          // Tablet
+          @media screen and (min-width: 601px) and (max-width: 768px) {
+            gap: 0.375rem;
             margin-top: 0.5rem;
           }
 
@@ -105,30 +424,32 @@
         }
 
         .showMore {
-          display: contents;
-          position: absolute;
-          bottom: 0;
-          right: 0;
-          background: linear-gradient(
-            to right,
-            transparent,
-            var(--background-color-info-text) 30%
-          );
-          padding: 0 8px 0 20px;
-          color: var(--link);
-          text-decoration: none;
-          font-size: 0.9rem;
           display: none; // Hidden by default
+          background: none;
+          border: none;
+          color: var(--link);
+          font-size: 0.9rem;
+          padding: 0.25rem 0;
+          margin-top: 0.5rem;
+          cursor: pointer;
+          text-align: left;
 
           &:hover {
             text-decoration: underline;
           }
         }
 
-        // Show the "show more" link only when text has overflow
+        // Show the "show more" button only when text has overflow
         &.hasOverflow .showMore {
-          display: contents;
+          display: block;
         }
+      }
+
+      // Menu container - sits next to .text
+      .more {
+        position: relative;
+        z-index: 2;
+        flex-shrink: 0;
       }
     }
 
@@ -154,18 +475,20 @@
         justify-content: center;
       }
 
-      @media screen and (max-width: 500px) {
-        margin-top: 0.6rem;
+      // Mobile: compact actions bar
+      @media screen and (max-width: 600px) {
+        margin-top: 0.5rem;
         padding-top: 0.5rem;
+        gap: 0.5rem;
 
         .evolution-element {
           display: flex;
           justify-content: end;
-          padding: 5px;
+          padding: 3px;
         }
 
         .chat-more-element {
-          // Allow chat bubble to grow for better visibility
+          // Maintain touch target size for accessibility
           min-width: 44px;
           min-height: 44px;
         }
@@ -173,8 +496,20 @@
         .more-question {
           display: flex;
           justify-content: end;
-          padding: 5px;
+          padding: 3px;
         }
+
+        .badge-element {
+          // Slightly smaller badges on mobile
+          transform: scale(0.9);
+        }
+      }
+
+      // Tablet
+      @media screen and (min-width: 601px) and (max-width: 768px) {
+        margin-top: 0.75rem;
+        padding-top: 0.75rem;
+        gap: 0.75rem;
       }
     }
 
@@ -223,26 +558,32 @@
 
 .editButtons {
   display: flex;
-  gap: 0.5rem;
+  gap: 0.25rem;
   margin-top: 0.5rem;
-  
+
   button {
-    padding: 0.25rem 0.75rem;
-    border: 1px solid var(--border-color, #ccc);
-    border-radius: 4px;
-    background: white;
+    padding: 0.25rem;
+    border: none;
+    background: none;
     cursor: pointer;
     display: flex;
     align-items: center;
-    gap: 0.25rem;
-    
-    &:hover {
-      background: var(--inputBackground);
-    }
-    
+
     svg {
-      width: 1rem;
-      height: 1rem;
+      width: 1.25rem;
+      height: 1.25rem;
+    }
+
+    &:first-child {
+      color: var(--approve);
+    }
+
+    &:last-child {
+      color: var(--reject);
+    }
+
+    &:hover {
+      opacity: 0.7;
     }
   }
 }

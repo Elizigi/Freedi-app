@@ -1,23 +1,24 @@
 import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { getFirestore } from 'firebase-admin/firestore';
-import { Statement, Collections } from 'delib-npm';
-import { EvidenceType } from 'delib-npm/dist/models/evidence/evidenceModel';
+import { Statement, Collections, functionConfig } from '@freedi/shared-types';
+import { EvidenceType } from '@freedi/shared-types';
 import {
 	calculateConsensusValid,
 	determineStatus,
 	updateHebbianScore,
-	migrateCorroborationScore
+	migrateCorroborationScore,
 } from './helpers/consensusValidCalculator';
+import { logError } from './utils/errorHandling';
 
 // Base weights now scaled to 0-1 range
 // 1.0 = scientific/peer-reviewed data
 // 0.1 = fallacious/unreliable
 const EVIDENCE_WEIGHTS: Record<EvidenceType, number> = {
-	[EvidenceType.data]: 1.0,        // Peer-reviewed research
-	[EvidenceType.testimony]: 0.7,   // Expert testimony
-	[EvidenceType.argument]: 0.4,    // Logical reasoning
-	[EvidenceType.anecdote]: 0.2,    // Personal stories
-	[EvidenceType.fallacy]: 0.1      // Flagged content
+	[EvidenceType.data]: 1.0, // Peer-reviewed research
+	[EvidenceType.testimony]: 0.7, // Expert testimony
+	[EvidenceType.argument]: 0.4, // Logical reasoning
+	[EvidenceType.anecdote]: 0.2, // Personal stories
+	[EvidenceType.fallacy]: 0.1, // Flagged content
 };
 
 /**
@@ -46,8 +47,8 @@ function calculatePostWeight(statement: Statement): number {
 	// Bayesian smoothing: add "virtual votes" to prevent wild swings from 1-2 votes
 	// Optimistic prior: 75% helpful, 25% not helpful (3:1 ratio)
 	const smoothing = 2;
-	const smoothedHelpful = helpfulCount + (smoothing * 0.75);
-	const smoothedNotHelpful = notHelpfulCount + (smoothing * 0.25);
+	const smoothedHelpful = helpfulCount + smoothing * 0.75;
+	const smoothedNotHelpful = notHelpfulCount + smoothing * 0.25;
 	const smoothedTotal = smoothedHelpful + smoothedNotHelpful;
 
 	// Calculate ratio of helpful votes (0 to 1)
@@ -57,7 +58,7 @@ function calculatePostWeight(statement: Statement): number {
 	// - ratio = 1.0 (all helpful) → voteCredibility = +1.0
 	// - ratio = 0.5 (balanced) → voteCredibility = 0.0
 	// - ratio = 0.0 (all not helpful) → voteCredibility = -1.0
-	const voteCredibility = (helpfulRatio * 2) - 1;
+	const voteCredibility = helpfulRatio * 2 - 1;
 
 	// Combine evidence type quality with vote credibility
 	// - baseWeight (0-1): How inherently reliable is this type of evidence?
@@ -70,7 +71,7 @@ function calculatePostWeight(statement: Statement): number {
 }
 
 // Hebbian score constants
-const PRIOR = 0.6;  // Starting score (benefit of doubt)
+const PRIOR = 0.6; // Starting score (benefit of doubt)
 
 async function recalculateScore(statementId: string): Promise<void> {
 	const db = getFirestore();
@@ -78,7 +79,10 @@ async function recalculateScore(statementId: string): Promise<void> {
 	// Get the parent statement to access consensus
 	const parentDoc = await db.collection(Collections.statements).doc(statementId).get();
 	if (!parentDoc.exists) {
-		console.error(`Parent statement ${statementId} not found`);
+		logError(new Error(`Parent statement ${statementId} not found`), {
+			operation: 'popperHebbian.onVote.recalculateScore',
+			statementId,
+		});
 
 		return;
 	}
@@ -103,7 +107,7 @@ async function recalculateScore(statementId: string): Promise<void> {
 		// Calculate and update the weight based on votes
 		const weight = calculatePostWeight(statement);
 		doc.ref.update({
-			'evidence.evidenceWeight': weight
+			'evidence.evidenceWeight': weight,
 		});
 
 		// Get corroboration score (with migration from old support field)
@@ -125,7 +129,7 @@ async function recalculateScore(statementId: string): Promise<void> {
 		lastCalculated: Date.now(),
 		// Keep deprecated fields for backward compatibility
 		totalScore: 0,
-		corroborationLevel: hebbianScore
+		corroborationLevel: hebbianScore,
 	};
 
 	// Calculate combined consensusValid score
@@ -135,13 +139,14 @@ async function recalculateScore(statementId: string): Promise<void> {
 	// Update the parent statement with both scores
 	await db.collection(Collections.statements).doc(statementId).update({
 		popperHebbianScore,
-		consensusValid
+		consensusValid,
 	});
 }
 
 export const onVoteUpdate = onDocumentUpdated(
 	{
-		document: `${Collections.statements}/{statementId}`
+		document: `${Collections.statements}/{statementId}`,
+		region: functionConfig.region,
 	},
 	async (event) => {
 		const before = event.data?.before.data() as Statement;
@@ -165,7 +170,7 @@ export const onVoteUpdate = onDocumentUpdated(
 				// Update net score
 				const netScore = (after.evidence.helpfulCount || 0) - (after.evidence.notHelpfulCount || 0);
 				await event.data!.after.ref.update({
-					'evidence.netScore': netScore
+					'evidence.netScore': netScore,
 				});
 
 				// Recalculate parent statement score
@@ -173,8 +178,11 @@ export const onVoteUpdate = onDocumentUpdated(
 					await recalculateScore(after.parentId);
 				}
 			} catch (error) {
-				console.error('Error updating vote scores:', error);
+				logError(error, {
+					operation: 'popperHebbian.onVoteUpdate',
+					statementId: after.statementId,
+				});
 			}
 		}
-	}
+	},
 );

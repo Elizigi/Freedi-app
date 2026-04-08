@@ -1,11 +1,4 @@
-import {
-	collection,
-	doc,
-	getDoc,
-	getDocs,
-	query,
-	where,
-} from 'firebase/firestore';
+import { collection, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { FireStore } from '../config';
 import {
 	Collections,
@@ -14,14 +7,17 @@ import {
 	getVoteId,
 	Vote,
 	VoteSchema,
-} from 'delib-npm';
+} from '@freedi/shared-types';
 import { parse } from 'valibot';
+import { normalizeStatementData } from '@/helpers/timestampHelpers';
+import { createDocRef, createStatementRef } from '@/utils/firebaseUtils';
+import { logError } from '@/utils/errorHandling';
 
 // Why get user from firebase when we can pass it as a parameter?
 export async function getToVoteOnParent(
 	parentId: string | undefined,
 	userId: string,
-	updateStoreWithVoteCB: (statement: Statement) => void
+	updateStoreWithVoteCB: (statement: Statement) => void,
 ): Promise<void> {
 	try {
 		if (!parentId) throw new Error('ParentId not provided');
@@ -30,23 +26,19 @@ export async function getToVoteOnParent(
 		const voteId = getVoteId(userId, parentId);
 		if (!voteId) throw new Error('VoteId not found');
 
-		const parentVoteRef = doc(FireStore, Collections.votes, voteId);
+		const parentVoteRef = createDocRef(Collections.votes, voteId);
 		const voteDB = await getDoc(parentVoteRef);
 
 		if (!voteDB.exists()) return null;
 		const vote = parse(VoteSchema, voteDB.data());
 
-		const statementRef = doc(
-			FireStore,
-			Collections.statements,
-			vote.statementId
-		);
+		const statementRef = createStatementRef(vote.statementId);
 		const statementDB = await getDoc(statementRef);
-		const statement = parse(StatementSchema, statementDB.data());
+		const statement = parse(StatementSchema, normalizeStatementData(statementDB.data()));
 
 		updateStoreWithVoteCB(statement);
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'vote.getVotes.getToVoteOnParent' });
 
 		return null;
 	}
@@ -58,13 +50,11 @@ export async function getVoters(parentId: string): Promise<Vote[]> {
 		const q = query(votesRef, where('parentId', '==', parentId));
 
 		const votersDB = await getDocs(q);
-		const voters = votersDB.docs.map((vote) =>
-			parse(VoteSchema, vote.data())
-		);
+		const voters = votersDB.docs.map((vote) => parse(VoteSchema, vote.data()));
 
 		return voters;
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'vote.getVotes.voters' });
 
 		return [] as Vote[];
 	}

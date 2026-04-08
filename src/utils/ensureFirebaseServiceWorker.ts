@@ -1,6 +1,5 @@
-import type { Messaging } from 'firebase/messaging';
-import { app } from '@/controllers/db/config';
-import { vapidKey } from '@/controllers/db/configKey';
+import { logError } from '@/utils/errorHandling';
+import { isBot } from '@/utils/botDetection';
 
 let isRegistering = false;
 let checkInterval: ReturnType<typeof setInterval> | null = null;
@@ -9,8 +8,10 @@ let checkInterval: ReturnType<typeof setInterval> | null = null;
 const isIOS = (): boolean => {
 	const userAgent = navigator.userAgent.toLowerCase();
 
-	return /iphone|ipad|ipod/.test(userAgent) ||
-		   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+	return (
+		/iphone|ipad|ipod/.test(userAgent) ||
+		(navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+	);
 };
 
 /**
@@ -19,153 +20,174 @@ const isIOS = (): boolean => {
  * NOTE: This will not run on iOS as Firebase Messaging is not supported
  */
 export async function ensureFirebaseServiceWorker() {
-    if (!('serviceWorker' in navigator)) {
-        // Service workers not supported
-        return;
-    }
+	if (!('serviceWorker' in navigator)) {
+		// Service workers not supported
+		return;
+	}
 
-    // Don't run on iOS - Firebase Messaging is not supported
-    if (isIOS()) {
-        console.info('[FirebaseSW] Skipping on iOS - Firebase Messaging not supported');
+	// Don't run on iOS - Firebase Messaging is not supported
+	if (isIOS()) {
+		console.info('[FirebaseSW] Skipping on iOS - Firebase Messaging not supported');
 
-        return;
-    }
+		return;
+	}
 
-    if (isRegistering) {
-        // Already registering, skip duplicate call
-        return;
-    }
+	// Don't run for bots/crawlers - they can't register service workers
+	if (isBot()) {
+		return;
+	}
 
-    try {
-        isRegistering = true;
+	if (isRegistering) {
+		// Already registering, skip duplicate call
+		return;
+	}
 
-        // Check if Firebase SW is already registered
-        const registrations = await navigator.serviceWorker.getRegistrations();
-        const firebaseSW = registrations.find(r =>
-            r.active?.scriptURL.includes('firebase-messaging-sw.js') ||
-            r.installing?.scriptURL.includes('firebase-messaging-sw.js') ||
-            r.waiting?.scriptURL.includes('firebase-messaging-sw.js')
-        );
+	try {
+		isRegistering = true;
 
-        if (firebaseSW && firebaseSW.active) {
-            // Firebase SW already registered and active
-            return firebaseSW;
-        }
+		// Check if Firebase SW is already registered
+		const registrations = await navigator.serviceWorker.getRegistrations();
+		const firebaseSW = registrations.find(
+			(r) =>
+				r.active?.scriptURL.includes('firebase-messaging-sw.js') ||
+				r.installing?.scriptURL.includes('firebase-messaging-sw.js') ||
+				r.waiting?.scriptURL.includes('firebase-messaging-sw.js'),
+		);
 
-        // Firebase SW not found, registering
+		if (firebaseSW && firebaseSW.active) {
+			// Firebase SW already registered and active
+			return firebaseSW;
+		}
 
-        // Register Firebase messaging service worker with explicit scope
-        const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
-            scope: '/',
-            updateViaCache: 'none' // Ensure fresh SW updates
-        });
+		// Firebase SW not found, registering
 
-        // Firebase SW registration successful
+		// Register Firebase messaging service worker with Firebase's default scope
+		// This allows it to coexist with the PWA's main sw.js at root scope
+		const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+			scope: '/firebase-cloud-messaging-push-scope',
+			updateViaCache: 'none', // Ensure fresh SW updates
+		});
 
-        // Wait for the service worker to be ready
-        if (registration.installing || registration.waiting) {
-            // Wait for Firebase SW activation
-            await new Promise((resolve) => {
-                const sw = registration.installing || registration.waiting;
-                sw!.addEventListener('statechange', function() {
-                    if (this.state === 'activated') {
-                        // Firebase SW activated
-                        resolve(true);
-                    }
-                });
-                // Timeout after 10 seconds
-                setTimeout(() => resolve(false), 10000);
-            });
-        } else if (registration.active) {
-            // Firebase SW already active
-        }
+		// Firebase SW registration successful
 
-        // Initialize FCM with the registered service worker
-        try {
-            // Dynamically import Firebase messaging functions to avoid loading on iOS
-            const { getMessaging, getToken } = await import('firebase/messaging');
-            const messaging: Messaging = getMessaging(app);
-            const token = await getToken(messaging, {
-                vapidKey,
-                serviceWorkerRegistration: registration
-            });
+		// Wait for the service worker to be ready
+		if (registration.installing || registration.waiting) {
+			// Wait for Firebase SW activation
+			await new Promise((resolve) => {
+				const sw = registration.installing || registration.waiting;
+				sw!.addEventListener('statechange', function () {
+					if (this.state === 'activated') {
+						// Firebase SW activated
+						resolve(true);
+					}
+				});
+				// Timeout after 10 seconds
+				setTimeout(() => resolve(false), 10000);
+			});
+		} else if (registration.active) {
+			// Firebase SW already active
+		}
 
-            if (token) {
-                // FCM token obtained successfully
-            } else {
-                // Failed to get FCM token
-            }
-        } catch (error) {
-            console.error('[FirebaseSW] Error getting token:', error);
-        }
+		// NOTE: Do NOT acquire FCM token here.
+		// Token acquisition is deferred until the user has shown intent
+		// (e.g., 3 actions in a discussion, or explicit notification prompt interaction).
+		// The service worker registration alone is sufficient for receiving push
+		// messages once a token is obtained later through NotificationService.
 
-        return registration;
-    } catch (error) {
-        console.error('[FirebaseSW] Registration failed:', error);
-        // Don't throw - fail gracefully to avoid unhandled rejections
+		return registration;
+	} catch (error) {
+		// permission-blocked is expected when users deny notifications — don't report to Sentry
+		// Network/fetch errors are transient — the monitor will retry automatically
+		const message = error instanceof Error ? error.message : '';
+		const isSuppressed =
+			message.includes('permission-blocked') ||
+			message.includes('fetching the script') ||
+			message.includes('Failed to fetch') ||
+			message.includes('network');
+		if (!isSuppressed) {
+			logError(error, {
+				operation: 'utils.ensureFirebaseServiceWorker.unknown',
+				metadata: { message: '[FirebaseSW] Registration failed:' },
+			});
+		} else {
+			console.info('[FirebaseSW] Registration failed (transient), will retry:', message);
+		}
+		// Don't throw - fail gracefully to avoid unhandled rejections
 
-        return undefined;
-    } finally {
-        isRegistering = false;
-    }
+		return undefined;
+	} finally {
+		isRegistering = false;
+	}
 }
 
 // Start periodic check to ensure Firebase SW stays registered
 export function startFirebaseServiceWorkerMonitor() {
-    if (checkInterval) return; // Already monitoring
-    
-    checkInterval = setInterval(async () => {
-        try {
-            if (!navigator.serviceWorker) return;
+	if (checkInterval) return; // Already monitoring
 
-            const registrations = await navigator.serviceWorker.getRegistrations();
-            const hasFirebaseSW = registrations.some(r =>
-                (r.active?.scriptURL || '').includes('firebase-messaging-sw.js')
-            );
+	checkInterval = setInterval(async () => {
+		try {
+			if (!navigator.serviceWorker) return;
 
-            if (!hasFirebaseSW) {
-                // Firebase SW missing, re-registering
-                ensureFirebaseServiceWorker().catch(error => {
-                    console.error('[FirebaseSW] Monitor re-registration failed:', error);
-                });
-            }
-        } catch (error) {
-            console.error('[FirebaseSW] Monitor check failed:', error);
-        }
-    }, 30000); // Check every 30 seconds
+			const registrations = await navigator.serviceWorker.getRegistrations();
+			const hasFirebaseSW = registrations.some((r) =>
+				(r.active?.scriptURL || '').includes('firebase-messaging-sw.js'),
+			);
+
+			if (!hasFirebaseSW) {
+				// Firebase SW missing, re-registering
+				ensureFirebaseServiceWorker().catch((error) => {
+					logError(error, {
+						operation: 'utils.ensureFirebaseServiceWorker.hasFirebaseSW',
+						metadata: { message: '[FirebaseSW] Monitor re-registration failed:' },
+					});
+				});
+			}
+		} catch (error) {
+			logError(error, {
+				operation: 'utils.ensureFirebaseServiceWorker.hasFirebaseSW',
+				metadata: { message: '[FirebaseSW] Monitor check failed:' },
+			});
+		}
+	}, 30000); // Check every 30 seconds
 }
 
 // Stop monitoring
 export function stopFirebaseServiceWorkerMonitor() {
-    if (checkInterval) {
-        clearInterval(checkInterval);
-        checkInterval = null;
-    }
+	if (checkInterval) {
+		clearInterval(checkInterval);
+		checkInterval = null;
+	}
 }
 
-// Auto-start on load (but not on iOS)
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator && !isIOS()) {
-    // Ensure registration on various events
-    const registerFirebaseSW = () => {
-        ensureFirebaseServiceWorker().catch(error => {
-            console.error('[FirebaseSW] Initial registration failed:', error);
-        });
-        startFirebaseServiceWorkerMonitor();
-    };
+// Auto-start on load (but not on iOS or bots)
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator && !isIOS() && !isBot()) {
+	// Ensure registration on various events
+	const registerFirebaseSW = () => {
+		ensureFirebaseServiceWorker().catch((error) => {
+			logError(error, {
+				operation: 'utils.ensureFirebaseServiceWorker.registerFirebaseSW',
+				metadata: { message: '[FirebaseSW] Initial registration failed:' },
+			});
+		});
+		startFirebaseServiceWorkerMonitor();
+	};
 
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', registerFirebaseSW);
-    } else {
-        // DOM already loaded
-        registerFirebaseSW();
-    }
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', registerFirebaseSW);
+	} else {
+		// DOM already loaded
+		registerFirebaseSW();
+	}
 
-    // Also register on page visibility change (in case SW was terminated)
-    document.addEventListener('visibilitychange', () => {
-        if (!document.hidden) {
-            ensureFirebaseServiceWorker().catch(error => {
-                console.error('[FirebaseSW] Visibility change registration failed:', error);
-            });
-        }
-    });
+	// Also register on page visibility change (in case SW was terminated)
+	document.addEventListener('visibilitychange', () => {
+		if (!document.hidden) {
+			ensureFirebaseServiceWorker().catch((error) => {
+				logError(error, {
+					operation: 'utils.ensureFirebaseServiceWorker.registerFirebaseSW',
+					metadata: { message: '[FirebaseSW] Visibility change registration failed:' },
+				});
+			});
+		}
+	});
 }

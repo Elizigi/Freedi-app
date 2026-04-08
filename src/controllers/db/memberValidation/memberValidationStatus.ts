@@ -1,5 +1,6 @@
 import { doc, setDoc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { FireStore } from '../config';
+import { logError } from '@/utils/errorHandling';
 
 export interface MemberValidationStatus {
 	statementId: string;
@@ -20,7 +21,7 @@ export async function saveMemberValidationStatus(
 	userId: string,
 	status: 'pending' | 'approved' | 'flagged' | 'banned',
 	reason?: string,
-	reviewedBy?: string
+	reviewedBy?: string,
 ): Promise<void> {
 	try {
 		const validationId = `${statementId}_${userId}`;
@@ -31,7 +32,7 @@ export async function saveMemberValidationStatus(
 			userId,
 			status,
 			createdAt: Date.now(),
-			lastUpdate: Date.now()
+			lastUpdate: Date.now(),
 		};
 
 		// Only add optional fields if they have values
@@ -47,7 +48,10 @@ export async function saveMemberValidationStatus(
 
 		await setDoc(validationRef, validationData, { merge: true });
 	} catch (error) {
-		console.error('Error saving member validation status:', error);
+		logError(error, {
+			operation: 'memberValidation.memberValidationStatus.unknown',
+			metadata: { message: 'Error saving member validation status:' },
+		});
 		throw error;
 	}
 }
@@ -57,7 +61,7 @@ export async function saveMemberValidationStatus(
  */
 export async function getMemberValidationStatus(
 	statementId: string,
-	userId: string
+	userId: string,
 ): Promise<MemberValidationStatus | null> {
 	try {
 		const validationId = `${statementId}_${userId}`;
@@ -70,9 +74,12 @@ export async function getMemberValidationStatus(
 
 		return null;
 	} catch (error) {
-		console.error('Error getting member validation status:', error);
-		
-return null;
+		logError(error, {
+			operation: 'memberValidation.memberValidationStatus.getMemberValidationStatus',
+			metadata: { message: 'Error getting member validation status:' },
+		});
+
+		return null;
 	}
 }
 
@@ -80,7 +87,7 @@ return null;
  * Get all member validation statuses for a statement
  */
 export async function getAllMemberValidationStatuses(
-	statementId: string
+	statementId: string,
 ): Promise<Map<string, MemberValidationStatus>> {
 	try {
 		const statusesRef = collection(FireStore, 'memberValidationStatuses');
@@ -96,8 +103,11 @@ export async function getAllMemberValidationStatuses(
 
 		return statusMap;
 	} catch (error) {
-		console.error('Error getting all member validation statuses:', error);
-		
-return new Map();
+		logError(error, {
+			operation: 'memberValidation.memberValidationStatus.getAllMemberValidationStatuses',
+			metadata: { message: 'Error getting all member validation statuses:' },
+		});
+
+		return new Map();
 	}
 }

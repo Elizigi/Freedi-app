@@ -1,52 +1,59 @@
 import { createSlice, PayloadAction, createSelector } from '@reduxjs/toolkit';
-import { RootState } from '../types';
-import { WaitingMember } from 'delib-npm';
+import { WaitingMember } from '@freedi/shared-types';
 
 interface SubscriptionsState {
 	waitingList: WaitingMember[];
+}
+
+// Minimal cross-slice type for selectors that access the creator slice
+interface SubscriptionsSliceRootState {
+	subscriptions: SubscriptionsState;
+	creator: { creator: { uid: string } | null };
 }
 
 const initialState: SubscriptionsState = {
 	waitingList: [],
 };
 
-export const statementsSlicer = createSlice({
+export const subscriptionsSlice = createSlice({
 	name: 'subscriptions',
 	initialState,
 	reducers: {
 		setWaitingMember: (state, action: PayloadAction<WaitingMember>) => {
-
 			const newWaitingMember = action.payload;
-			const existingWaitingMember = state.waitingList.find((waiting) => waiting.statementsSubscribeId === newWaitingMember.statementsSubscribeId);
+			const existingWaitingMember = state.waitingList.find(
+				(waiting) => waiting.statementsSubscribeId === newWaitingMember.statementsSubscribeId,
+			);
 			if (existingWaitingMember) {
 				// Update the existing waiting list item with the new data
 				Object.assign(existingWaitingMember, newWaitingMember);
-			}
-			else {
+			} else {
 				// Add the new waiting list item to the state
 				state.waitingList.push(newWaitingMember);
 			}
 		},
 		removeWaitingMember: (state, action: PayloadAction<string>) => {
 			const subscriptionId = action.payload;
-			state.waitingList = state.waitingList.filter((waiting: WaitingMember) => waiting.statementsSubscribeId !== subscriptionId);
+			state.waitingList = state.waitingList.filter(
+				(waiting: WaitingMember) => waiting.statementsSubscribeId !== subscriptionId,
+			);
 		},
 		clearWaitingMember: (state) => {
 			state.waitingList = [];
 		},
 	},
-})
+});
 
-const getWaitingList = (state: RootState) => state.subscriptions.waitingList;
-const getCreatorUid = (state: RootState) => state.creator.creator?.uid;
+const getWaitingList = (state: SubscriptionsSliceRootState) => state.subscriptions.waitingList;
+const getCreatorUid = (state: SubscriptionsSliceRootState) => state.creator.creator?.uid;
 
-export const { setWaitingMember, removeWaitingMember, clearWaitingMember } = statementsSlicer.actions;
+export const { setWaitingMember, removeWaitingMember, clearWaitingMember } =
+	subscriptionsSlice.actions;
 export const selectWaitingMember = createSelector(
 	[getWaitingList, getCreatorUid],
-	(waitingList, creatorUid) => waitingList.filter((waiting) => waiting.adminId === creatorUid)
+	(waitingList, creatorUid) => waitingList.filter((waiting) => waiting.adminId === creatorUid),
 );
-export const selectWaitingMemberByStatementId = (statementId: string) => (state: RootState) => {
-	return state.subscriptions.waitingList.filter((waiting) => waiting.statementId === statementId);
-};
-
-export default statementsSlicer;
+export const selectWaitingMemberByStatementId =
+	(statementId: string) => (state: SubscriptionsSliceRootState) => {
+		return state.subscriptions.waitingList.filter((waiting) => waiting.statementId === statementId);
+	};

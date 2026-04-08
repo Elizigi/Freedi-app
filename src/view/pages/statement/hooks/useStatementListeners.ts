@@ -3,14 +3,18 @@ import { useSelector } from 'react-redux';
 import { useAuthentication } from '@/controllers/hooks/useAuthentication';
 import {
 	listenToStatement,
-	listenToAllDescendants,
 	listenToSubStatements,
 	listenToStatementSubscription,
+	listenToTreeByTopParent,
+	listenToTreeDescendants,
 } from '@/controllers/db/statements/listenToStatements';
+import { listenToMindMapData } from '@/controllers/db/statements/optimizedListeners';
 import {
 	listenToInAppNotifications,
 	clearInAppNotifications,
 } from '@/controllers/db/inAppNotifications/db_inAppNotifications';
+import { CHAT } from '@/constants/common';
+import { TREE_INITIAL_LIMIT } from '@/constants/treeView';
 import {
 	listenToUserDemographicAnswers,
 	listenToUserDemographicQuestions,
@@ -19,6 +23,9 @@ import {
 } from '@/controllers/db/userDemographic/getUserDemographic';
 import { statementSelector } from '@/redux/statements/statementsSlice';
 import { listenerManager } from '@/controllers/utils/ListenerManager';
+import { logError } from '@/utils/errorHandling';
+import { loadBookmarksForRoom } from '@/controllers/db/bookmarks/bookmarksPersistence';
+import { listenToEvaluations } from '@/controllers/db/evaluation/getEvaluation';
 
 interface UseStatementListenersProps {
 	statementId?: string;
@@ -46,6 +53,7 @@ export const useStatementListeners = ({
 	// Subscribe to statement from Redux to get topParentId reactively
 	const statement = useSelector(statementSelector(statementId));
 	const topParentId = statement?.topParentId;
+	const enableTreeView = statement?.statementSettings?.enableTreeView !== false;
 
 	// Reset listener stats when navigating to a different statement
 	useEffect(() => {
@@ -70,7 +78,10 @@ export const useStatementListeners = ({
 						unsubscribe();
 					}
 				} catch (error) {
-					console.error('Error while unsubscribing:', error);
+					logError(error, {
+						operation: 'hooks.useStatementListeners.cleanup',
+						metadata: { message: 'Error while unsubscribing:' },
+					});
 					setError(error instanceof Error ? error.message : 'Unsubscribe error');
 				}
 			});
@@ -87,36 +98,59 @@ export const useStatementListeners = ({
 			unsubscribersRef.current.push(
 				listenToStatement(statementId, setIsStatementNotFound),
 				listenToStatementSubscription(statementId, creator),
+				listenToEvaluations(statementId, undefined, creator.uid),
 				listenToUserDemographicQuestions(statementId),
 				listenToUserDemographicAnswers(statementId),
-				listenToInAppNotifications()
+				listenToInAppNotifications(),
 			);
 
 			// Conditional listeners based on screen
 			if (currentScreen === 'mind-map') {
-				// For MindMap, we need BOTH direct children (parentId) AND all descendants (parents array)
-				// This ensures we capture all sub-statements regardless of data structure
-				unsubscribersRef.current.push(
-					listenToAllDescendants(statementId),  // Gets descendants via parents array
-					listenToSubStatements(statementId)     // Gets direct children via parentId
-				);
+				// Use consolidated listener to avoid dual listener overhead
+				unsubscribersRef.current.push(listenToMindMapData(statementId));
+			} else if (enableTreeView) {
+				// Tree view: load direct children (reliable via parentId) with no limit
+				unsubscribersRef.current.push(listenToSubStatements(statementId, 'top'));
+				if (!topParentId || topParentId === statementId) {
+					// Top level: load entire tree via topParentId + parents array fallback
+					unsubscribersRef.current.push(listenToTreeByTopParent(statementId, TREE_INITIAL_LIMIT));
+					unsubscribersRef.current.push(listenToTreeDescendants(statementId, TREE_INITIAL_LIMIT));
+				} else {
+					// Sub-statement: load descendants via parents array-contains
+					unsubscribersRef.current.push(listenToTreeDescendants(statementId, TREE_INITIAL_LIMIT));
+				}
 			} else {
-				unsubscribersRef.current.push(listenToSubStatements(statementId));
+				// Limit initial load for lazy loading (desc order to get most recent).
+				// The default view is 'chat', so apply the limit for all non-mind-map screens.
+				// The Chat component uses IntersectionObserver to fetch older messages on scroll.
+				unsubscribersRef.current.push(
+					listenToSubStatements(statementId, 'top', CHAT.INITIAL_MESSAGES_LIMIT),
+				);
 			}
 
 			// Stage listener
 			if (stageId) {
-				unsubscribersRef.current.push(
-					listenToStatement(stageId, setIsStatementNotFound)
-				);
+				unsubscribersRef.current.push(listenToStatement(stageId, setIsStatementNotFound));
 			}
 		} catch (error) {
-			console.error('Error setting up listeners:', error);
+			logError(error, {
+				operation: 'hooks.useStatementListeners.unknown',
+				metadata: { message: 'Error setting up listeners:' },
+			});
 			setError(error instanceof Error ? error.message : 'Setup error');
 		}
 
 		return cleanup;
-	}, [creator, statementId, stageId, screen, setIsStatementNotFound, setError]);
+	}, [
+		creator,
+		statementId,
+		stageId,
+		screen,
+		enableTreeView,
+		topParentId,
+		setIsStatementNotFound,
+		setError,
+	]);
 
 	// Effect for top parent statement and group-level demographic questions
 	// This effect now properly depends on topParentId from Redux selector
@@ -136,14 +170,22 @@ export const useStatementListeners = ({
 		unsubscribers.push(listenToGroupDemographicQuestions(topParentId));
 		unsubscribers.push(listenToGroupDemographicAnswers(topParentId));
 
+		// Load persisted bookmarks for this room
+		if (creator.uid) {
+			loadBookmarksForRoom(creator.uid, topParentId);
+		}
+
 		return () => {
-			unsubscribers.forEach(unsubscribe => {
+			unsubscribers.forEach((unsubscribe) => {
 				try {
 					if (typeof unsubscribe === 'function') {
 						unsubscribe();
 					}
 				} catch (error) {
-					console.error('Error while unsubscribing from group listeners:', error);
+					logError(error, {
+						operation: 'hooks.useStatementListeners.unknown',
+						metadata: { message: 'Error while unsubscribing from group listeners:' },
+					});
 				}
 			});
 		};

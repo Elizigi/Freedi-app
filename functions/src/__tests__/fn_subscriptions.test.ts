@@ -57,10 +57,22 @@ describe('Subscription Cascade Prevention', () => {
 			};
 
 			// Check if only metadata changed (using object destructuring)
-			// eslint-disable-next-line @typescript-eslint/no-unused-vars
-			const { lastUpdate: _b1, lastSubStatements: _b2, ...beforeCopy } = beforeData as typeof beforeData & { lastSubStatements?: unknown };
-			// eslint-disable-next-line @typescript-eslint/no-unused-vars
-			const { lastUpdate: _a1, lastSubStatements: _a2, ...afterCopy } = afterData as typeof afterData & { lastSubStatements?: unknown };
+
+			const {
+				lastUpdate: _b1Before,
+				lastSubStatements: _b2Before,
+				...beforeCopy
+			} = beforeData as typeof beforeData & { lastSubStatements?: unknown };
+			void _b1Before;
+			void _b2Before;
+
+			const {
+				lastUpdate: _a1Before,
+				lastSubStatements: _a2Before,
+				...afterCopy
+			} = afterData as typeof afterData & { lastSubStatements?: unknown };
+			void _a1Before;
+			void _a2Before;
 
 			const onlyMetadataChanged = JSON.stringify(beforeCopy) === JSON.stringify(afterCopy);
 
@@ -85,10 +97,22 @@ describe('Subscription Cascade Prevention', () => {
 			};
 
 			// Check if only metadata changed (using object destructuring)
-			// eslint-disable-next-line @typescript-eslint/no-unused-vars
-			const { lastUpdate: _b1, lastSubStatements: _b2, ...beforeCopy } = beforeData as typeof beforeData & { lastSubStatements?: unknown };
-			// eslint-disable-next-line @typescript-eslint/no-unused-vars
-			const { lastUpdate: _a1, lastSubStatements: _a2, ...afterCopy } = afterData as typeof afterData & { lastSubStatements?: unknown };
+
+			const {
+				lastUpdate: _b1Content,
+				lastSubStatements: _b2Content,
+				...beforeCopy
+			} = beforeData as typeof beforeData & { lastSubStatements?: unknown };
+			void _b1Content;
+			void _b2Content;
+
+			const {
+				lastUpdate: _a1Content,
+				lastSubStatements: _a2Content,
+				...afterCopy
+			} = afterData as typeof afterData & { lastSubStatements?: unknown };
+			void _a1Content;
+			void _a2Content;
 
 			const onlyMetadataChanged = JSON.stringify(beforeCopy) === JSON.stringify(afterCopy);
 
@@ -139,7 +163,7 @@ describe('Subscription Cascade Prevention', () => {
 
 			// New approach: 1 document with array
 			const newApproachDocCount = 1;
-			const adminIds = admins.map(admin => admin.userId);
+			const adminIds = admins.map((admin) => admin.userId);
 
 			expect(adminIds).toEqual(['admin1', 'admin2', 'admin3']);
 			expect(newApproachDocCount).toBe(1);

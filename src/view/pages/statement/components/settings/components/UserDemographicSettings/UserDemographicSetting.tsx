@@ -1,4 +1,4 @@
-import React, { FC, useState } from 'react';
+import React, { FC, useState, useCallback } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import SectionTitle from '../sectionTitle/SectionTitle';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
@@ -11,11 +11,12 @@ import {
 	UserDemographicQuestion,
 	UserDemographicQuestionType,
 	DemographicQuestionScope,
-} from 'delib-npm';
+} from '@freedi/shared-types';
 
 // Use string literals for scope since delib-npm exports DemographicQuestionScope as type-only
 const DEMOGRAPHIC_SCOPE_GROUP: DemographicQuestionScope = 'group' as DemographicQuestionScope;
-const DEMOGRAPHIC_SCOPE_STATEMENT: DemographicQuestionScope = 'statement' as DemographicQuestionScope;
+const DEMOGRAPHIC_SCOPE_STATEMENT: DemographicQuestionScope =
+	'statement' as DemographicQuestionScope;
 import {
 	deleteUserDemographicOption,
 	deleteUserDemographicQuestion as deleteUserDemographicQuestionDB,
@@ -34,7 +35,10 @@ import RadioButtonEmptyIcon from '@/assets/icons/radioButtonEmpty.svg?react';
 import DeleteIcon from '@/assets/icons/delete.svg?react';
 import CheckboxEmptyIcon from '@/assets/icons/checkboxEmptyIcon.svg?react';
 import Button, { ButtonType } from '@/view/components/buttons/button/Button';
-//mockData
+import { InheritedDemographics } from '@/view/components/atomic/molecules/InheritedDemographics';
+import { useInheritedDemographics } from '@/controllers/hooks/userDemographic/useInheritedDemographics';
+import { setExcludedInheritedDemographics } from '@/controllers/db/userDemographic/excludedInheritedDemographics';
+import { logError } from '@/utils/errorHandling';
 
 interface Props {
 	statement: Statement;
@@ -49,7 +53,7 @@ const UserDataSetting: FC<Props> = ({ statement }) => {
 	const dispatch = useDispatch();
 	const [showModal, setShowModal] = useState(false); // Get user questions from Redux store filtered by statement ID
 	const userQuestions: UserDemographicQuestion[] = useSelector(
-		selectUserDemographicQuestionsByStatementId(statement.statementId)
+		selectUserDemographicQuestionsByStatementId(statement.statementId),
 	);
 	const defaultOptions: Option[] = [
 		{ option: '', color: '#0000ff' },
@@ -57,11 +61,51 @@ const UserDataSetting: FC<Props> = ({ statement }) => {
 	];
 	const [isQuestionRequired, setIsQuestionRequired] = useState(true);
 	const [options, setOptions] = useState<Option[]>(defaultOptions);
-	const [selectedQuestionType, setSelectedQuestionType] = useState<UserDemographicQuestionType>(UserDemographicQuestionType.text);
+	const [selectedQuestionType, setSelectedQuestionType] = useState<UserDemographicQuestionType>(
+		UserDemographicQuestionType.text,
+	);
 	const [applyToGroup, setApplyToGroup] = useState(true);
+	const [showBulkPaste, setShowBulkPaste] = useState(false);
+	const [bulkPasteText, setBulkPasteText] = useState('');
+	const [allowOther, setAllowOther] = useState(false);
 
 	// Check if this is the top parent (group level)
 	const isTopParent = statement.parentId === 'top';
+
+	// Get initial excluded IDs from statement settings
+	const initialExcludedIds = statement.statementSettings?.excludedInheritedDemographicIds || [];
+
+	// Handle inherited demographics exclusion changes - persist to Firestore
+	const handleExcludedIdsChange = useCallback(
+		async (excludedIds: string[]) => {
+			try {
+				await setExcludedInheritedDemographics(statement.statementId, excludedIds);
+				console.info(
+					'Excluded inherited demographics saved:',
+					excludedIds.length,
+					'questions excluded',
+				);
+			} catch (error) {
+				logError(error, {
+					operation: 'UserDemographicSetting.handleExcludedIdsChange',
+					statementId: statement.statementId,
+				});
+			}
+		},
+		[statement.statementId],
+	);
+
+	// Use the inherited demographics hook
+	const {
+		inheritedQuestions,
+		loading: inheritedLoading,
+		toggleQuestion: toggleInheritedQuestion,
+	} = useInheritedDemographics({
+		statement,
+		initialExcludedIds,
+		onExcludedIdsChange: handleExcludedIdsChange,
+	});
+
 	function closeModal() {
 		setShowModal(false);
 	}
@@ -77,15 +121,17 @@ const UserDataSetting: FC<Props> = ({ statement }) => {
 		const form = e.target as HTMLFormElement;
 		const formData = new FormData(form);
 		const newQuestion = formData.get('newQuestion') as string;
-		const newQuestionType = formData.get(
-			'questionType'
-		) as UserDemographicQuestionType;
+		const newQuestionType = formData.get('questionType') as UserDemographicQuestionType;
 
 		if (!newQuestion.trim()) return;
 
-		// Determine the scope based on whether this is a top parent and user selection
-		const isGroupLevel = isTopParent && applyToGroup;
+		// Determine the scope based on user selection
+		const isGroupLevel = applyToGroup;
 
+		const isMultiOptionType =
+			newQuestionType === UserDemographicQuestionType.checkbox ||
+			newQuestionType === UserDemographicQuestionType.radio ||
+			newQuestionType === UserDemographicQuestionType.dropdown;
 		const newQuestionObj: UserDemographicQuestion = {
 			userQuestionId: getRandomUID(),
 			question: newQuestion.trim(),
@@ -93,11 +139,8 @@ const UserDataSetting: FC<Props> = ({ statement }) => {
 			statementId: statement.statementId,
 			topParentId: statement.topParentId || statement.statementId,
 			scope: isGroupLevel ? DEMOGRAPHIC_SCOPE_GROUP : DEMOGRAPHIC_SCOPE_STATEMENT,
-			options:
-				newQuestionType === UserDemographicQuestionType.checkbox ||
-				newQuestionType === UserDemographicQuestionType.radio
-					? options
-					: [],
+			options: isMultiOptionType ? options : [],
+			allowOther: isMultiOptionType ? allowOther : undefined,
 		};
 
 		dispatch(setUserDemographicQuestion(newQuestionObj));
@@ -108,8 +151,11 @@ const UserDataSetting: FC<Props> = ({ statement }) => {
 			defaultOptions.map((option) => ({
 				...option,
 				color: getRandomColor(),
-			}))
+			})),
 		);
+		setAllowOther(false);
+		setBulkPasteText('');
+		setShowBulkPaste(false);
 		setUserDemographicQuestionDB(statement, newQuestionObj);
 	};
 
@@ -118,7 +164,7 @@ const UserDataSetting: FC<Props> = ({ statement }) => {
 		if (questionToDelete && questionToDelete.userQuestionId) {
 			// Find the actual index in the Redux store and dispatch delete action
 			const storeIndex = userQuestions.findIndex(
-				(q) => q.userQuestionId === questionToDelete.userQuestionId
+				(q) => q.userQuestionId === questionToDelete.userQuestionId,
 			);
 			if (storeIndex !== -1) {
 				dispatch(deleteUserDemographicQuestion(questionToDelete.userQuestionId));
@@ -129,7 +175,7 @@ const UserDataSetting: FC<Props> = ({ statement }) => {
 	};
 	const handleUpdateQuestion = (
 		questionIndex: number,
-		updatedQuestion: Partial<UserDemographicQuestion>
+		updatedQuestion: Partial<UserDemographicQuestion>,
 	) => {
 		const questionToUpdate = userQuestions[questionIndex];
 		if (questionToUpdate && questionToUpdate.userQuestionId) {
@@ -141,31 +187,33 @@ const UserDataSetting: FC<Props> = ({ statement }) => {
 			setUserDemographicQuestionDB(statement, updatedQuestionObj);
 		}
 	};
+	const handleBulkPaste = () => {
+		const lines = bulkPasteText
+			.split('\n')
+			.map((line) => line.trim())
+			.filter((line) => line.length > 0);
+		if (lines.length === 0) return;
+		const newOptions: Option[] = lines.map((line) => ({
+			option: line,
+			color: getRandomColor(),
+		}));
+		setOptions([...options, ...newOptions]);
+		setBulkPasteText('');
+		setShowBulkPaste(false);
+	};
 	const createNewOption = () => {
 		setOptions([...options, { option: '', color: getRandomColor() }]);
 	};
 	const deleteOption = (index: number) => {
 		setOptions(options.filter((_, idx) => idx !== index));
 	};
-	const handleOptionChange = (
-		e: React.ChangeEvent<HTMLInputElement>,
-		index: number
-	) => {
+	const handleOptionChange = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
 		const value = e.target.value;
-		setOptions((prev) =>
-			prev.map((opt, i) =>
-				i === index ? { ...opt, option: value } : opt
-			)
-		);
+		setOptions((prev) => prev.map((opt, i) => (i === index ? { ...opt, option: value } : opt)));
 	};
-	const handleColorChange = (
-		e: React.ChangeEvent<HTMLInputElement>,
-		index: number
-	) => {
+	const handleColorChange = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
 		const value = e.target.value;
-		setOptions((prev) =>
-			prev.map((opt, i) => (i === index ? { ...opt, color: value } : opt))
-		);
+		setOptions((prev) => prev.map((opt, i) => (i === index ? { ...opt, color: value } : opt)));
 	};
 	const handleAddOption = (questionIndex: number, newOption: string) => {
 		if (!newOption.trim()) return;
@@ -191,34 +239,22 @@ const UserDataSetting: FC<Props> = ({ statement }) => {
 
 	const handleDeleteOption = (questionIndex: number, optionIndex: number) => {
 		const questionToUpdate = userQuestions[questionIndex];
-		if (
-			questionToUpdate &&
-			questionToUpdate.userQuestionId &&
-			questionToUpdate.options
-		) {
-			const updatedOptions = questionToUpdate.options.filter(
-				(_, idx) => idx !== optionIndex
-			);
+		if (questionToUpdate && questionToUpdate.userQuestionId && questionToUpdate.options) {
+			const updatedOptions = questionToUpdate.options.filter((_, idx) => idx !== optionIndex);
 			const updatedQuestion: UserDemographicQuestion = {
 				...questionToUpdate,
 				options: updatedOptions,
 			};
 			dispatch(setUserDemographicQuestion(updatedQuestion));
 		}
-		deleteUserDemographicOption(
-			questionToUpdate,
-			questionToUpdate.options[optionIndex].option
-		);
+		deleteUserDemographicOption(questionToUpdate, questionToUpdate.options[optionIndex].option);
 	};
 
 	return (
 		<div>
 			<SectionTitle title={t('Member Information')} />
-			<div className='btns'>
-				<button
-					className='btn btn--secondary'
-					onClick={() => setShowModal(true)}
-				>
+			<div className="btns">
+				<button className="btn btn--secondary" onClick={() => setShowModal(true)}>
 					{t('Survey')}
 				</button>
 			</div>
@@ -235,142 +271,167 @@ const UserDataSetting: FC<Props> = ({ statement }) => {
 							<X className={styles.XBtn} onClick={closeModal} />
 						</div>
 						<h3>{t('Survey setting')}</h3>
+
+						{/* Inherited Demographics Section - Only show for non-top-parent statements */}
+						{!isTopParent && inheritedQuestions.length > 0 && (
+							<InheritedDemographics
+								inheritedQuestions={inheritedQuestions}
+								onToggleQuestion={toggleInheritedQuestion}
+								loading={inheritedLoading}
+								defaultExpanded={false}
+							/>
+						)}
+
 						{/* New Question Form */}
-						<form
-							className={styles.newQuestionForm}
-							onSubmit={handleAddNewQuestion}
-						>
+						<form className={styles.newQuestionForm} onSubmit={handleAddNewQuestion}>
 							<input
-								name='newQuestion'
+								name="newQuestion"
 								placeholder={t('Write Question here')}
 								required
-								type='text'
+								type="text"
 								className={styles.inputQuestion}
 							/>
 							<div className={styles.selectField}>
 								<select
-									id='questionType'
-									name='questionType'
+									id="questionType"
+									name="questionType"
 									value={selectedQuestionType}
-									onChange={(e) => setSelectedQuestionType(e.target.value as UserDemographicQuestionType)}
+									onChange={(e) =>
+										setSelectedQuestionType(e.target.value as UserDemographicQuestionType)
+									}
 								>
-									<option value={UserDemographicQuestionType.text}>
-										📝 {t('Text Input')}
-									</option>
-									<option value={UserDemographicQuestionType.textarea}>
-										📄 {t('Text Area')}
-									</option>
+									<option value={UserDemographicQuestionType.text}>📝 {t('Text Input')}</option>
+									<option value={UserDemographicQuestionType.textarea}>📄 {t('Text Area')}</option>
 									<option value={UserDemographicQuestionType.radio}>
 										◉ {t('Single Choice (Radio)')}
 									</option>
 									<option value={UserDemographicQuestionType.checkbox}>
 										☑️ {t('Multiple Choice (Checkbox)')}
 									</option>
+									<option value={UserDemographicQuestionType.dropdown}>{t('Dropdown')}</option>
 								</select>
 							</div>
-							{isTopParent && (
-								<div className={styles.scopeToggle}>
-									<label className={styles.scopeLabel}>
-										<input
-											type='checkbox'
-											checked={applyToGroup}
-											onChange={(e) => setApplyToGroup(e.target.checked)}
-										/>
-										<span>{t('Apply to all sub-discussions')}</span>
-									</label>
-									<p className={styles.scopeHint}>
-										{applyToGroup
-											? t('Members will answer these questions once when joining the group')
-											: t('Members will answer these questions only for this discussion')
-										}
-									</p>
-								</div>
-							)}
+							<div className={styles.scopeToggle}>
+								<label className={styles.scopeLabel}>
+									<input
+										type="checkbox"
+										checked={applyToGroup}
+										onChange={(e) => setApplyToGroup(e.target.checked)}
+									/>
+									<span>{t('Apply to all sub-discussions')}</span>
+								</label>
+								<p className={styles.scopeHint}>
+									{applyToGroup
+										? t('Members will answer these questions once when joining the group')
+										: t('Members will answer these questions only for this discussion')}
+								</p>
+							</div>
 							{(selectedQuestionType === UserDemographicQuestionType.radio ||
-							  selectedQuestionType === UserDemographicQuestionType.checkbox) && (
+								selectedQuestionType === UserDemographicQuestionType.checkbox ||
+								selectedQuestionType === UserDemographicQuestionType.dropdown) && (
 								<div className={styles.addOptionContainer}>
 									{options.map((option, indx) => (
 										<div className={styles.option} key={indx}>
-											{selectedQuestionType === UserDemographicQuestionType.radio ?
-												<RadioButtonEmptyIcon /> :
+											{selectedQuestionType === UserDemographicQuestionType.radio ? (
+												<RadioButtonEmptyIcon />
+											) : (
 												<CheckboxEmptyIcon />
-											}
+											)}
 											<input
 												name={option.option}
 												placeholder={t('Write Answer here')}
 												required
-												type='text'
+												type="text"
 												className={styles.inputAnswer}
 												value={option.option}
-												onChange={(e) =>
-													handleOptionChange(e, indx)
-												}
+												onChange={(e) => handleOptionChange(e, indx)}
 											/>
 											<input
-												type='color'
+												type="color"
 												className={styles.optionColor}
-												onChange={(e) =>
-													handleColorChange(e, indx)
-												}
+												onChange={(e) => handleColorChange(e, indx)}
 												value={option.color}
 											/>
 											<DeleteIcon
-												color={
-													allowDelete ? 'red' : 'white'
-												}
-												cursor={
-													allowDelete
-														? 'pointer'
-														: 'default'
-												}
-												onClick={() =>
-													allowDelete
-														? deleteOption(indx)
-														: ''
-												}
+												color={allowDelete ? 'red' : 'white'}
+												cursor={allowDelete ? 'pointer' : 'default'}
+												onClick={() => (allowDelete ? deleteOption(indx) : '')}
 											></DeleteIcon>
 										</div>
 									))}
-									<div
-										className={styles.addOption}
-										onClick={createNewOption}
-									>
+									<div className={styles.addOption} onClick={createNewOption}>
 										<h4>{t('add more options')}</h4>
+									</div>
+									<button
+										type="button"
+										className={styles.bulkPasteToggle}
+										onClick={() => setShowBulkPaste(!showBulkPaste)}
+									>
+										{showBulkPaste ? '▲' : '▼'} {t('Bulk Paste Options')}
+									</button>
+									{showBulkPaste && (
+										<div className={styles.bulkPasteSection}>
+											<textarea
+												className={styles.bulkPasteTextarea}
+												value={bulkPasteText}
+												onChange={(e) => setBulkPasteText(e.target.value)}
+												placeholder={t('Paste options, one per line')}
+												rows={6}
+											/>
+											<div className={styles.bulkPasteActions}>
+												{bulkPasteText.split('\n').filter((l) => l.trim()).length > 0 && (
+													<span className={styles.bulkPasteCount}>
+														{bulkPasteText.split('\n').filter((l) => l.trim()).length}{' '}
+														{t('options')}
+													</span>
+												)}
+												<button
+													type="button"
+													className="btn btn--secondary btn--small"
+													onClick={handleBulkPaste}
+													disabled={bulkPasteText.split('\n').filter((l) => l.trim()).length === 0}
+												>
+													{t('Add Pasted Options')}
+												</button>
+											</div>
+										</div>
+									)}
+									<div className={styles.allowOtherToggle}>
+										<label className={styles.allowOtherLabel}>
+											<input
+												type="checkbox"
+												checked={allowOther}
+												onChange={(e) => setAllowOther(e.target.checked)}
+											/>
+											<span>{t('Allow "Other" option')}</span>
+										</label>
 									</div>
 								</div>
 							)}
 
 							<div className={styles.bottomBar}>
-									<div className={styles.requiredToggle}>
-										<span>{t('Required')}</span>
+								<div className={styles.requiredToggle}>
+									<span>{t('Required')}</span>
+									<div
+										className={styles.slideButtonContainer}
+										onClick={switchRequired}
+										style={{
+											backgroundColor: isQuestionRequired ? 'var(--btn-primary)' : '',
+										}}
+									>
 										<div
-											className={styles.slideButtonContainer}
-											onClick={switchRequired}
-											style={{
-												backgroundColor: isQuestionRequired
-													? 'var(--btn-primary)'
-													: '',
-											}}
-										>
-											<div
-												className={`${styles.slideButtonHandle} ${isQuestionRequired ? styles.active : styles.inactive}`}
-											></div>
-										</div>
+											className={`${styles.slideButtonHandle} ${isQuestionRequired ? styles.active : styles.inactive}`}
+										></div>
 									</div>
-									<div className={styles.spacer}></div>
-									<Button
-										text={t('Add Question')}
-										buttonType={ButtonType.PRIMARY}
-										type="submit"
-									/>
 								</div>
+								<div className={styles.spacer}></div>
+								<Button text={t('Add Question')} buttonType={ButtonType.PRIMARY} type="submit" />
+							</div>
 						</form>
 						{/* Existing Questions */}
 						<div className={styles.existingQuestions}>
 							{userQuestions.length === 0 ? (
-								<p className={styles.emptyState}>
-									{t('No questions added yet')}
-								</p>
+								<p className={styles.emptyState}>{t('No questions added yet')}</p>
 							) : (
 								userQuestions.map((question, index) => (
 									<UserQuestionComp

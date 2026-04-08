@@ -1,5 +1,6 @@
 // Helpers
 import { useState } from 'react';
+import { Link } from 'react-router';
 import IconButton from '../../components/iconButton/IconButton';
 import Menu from '../../components/menu/Menu';
 import MenuOption from '../../components/menu/MenuOption';
@@ -14,8 +15,13 @@ import Modal from '@/view/components/modal/Modal';
 import ChangeLanguage from '@/view/components/changeLanguage/ChangeLanguage';
 import { LANGUAGES } from '@/constants/Languages';
 import NotificationBtn from '@/view/components/notificationBtn/NotificationBtn';
-import WaitingList from '@/view/components/approveMemebers/WaitingList';
-import { usePWAInstallPrompt } from '@/hooks/usePWAInstallPrompt';
+import WaitingList from '@/view/components/approveMembers/WaitingList';
+import { usePWAInstallPrompt } from '@/controllers/hooks/usePWAInstallPrompt';
+import { logError } from '@/utils/errorHandling';
+import ProfileAvatar from '@/view/components/atomic/atoms/ProfileAvatar/ProfileAvatar';
+import { useAppSelector } from '@/controllers/hooks/reduxHooks';
+import { userLevelSelector } from '@/redux/engagement/engagementSlice';
+import { creatorSelector } from '@/redux/creator/creatorSlice';
 
 export default function HomeHeader() {
 	const [isHomeMenuOpen, setIsHomeMenuOpen] = useState(false);
@@ -23,21 +29,14 @@ export default function HomeHeader() {
 	const [showLanguageModal, setShowLanguageModal] = useState(false);
 
 	const { t, dir, currentLanguage } = useTranslation();
-	const { isInstallable, isAppInstalled, handleInstall } = usePWAInstallPrompt();
+	const { isInstallable, isAppInstalled } = usePWAInstallPrompt();
+	const level = useAppSelector(userLevelSelector);
+	const creator = useAppSelector(creatorSelector);
 
-	const currentLabel = LANGUAGES.find(
-		(lang) => lang.code === currentLanguage
-	).label;
+	const currentLabel = LANGUAGES.find((lang) => lang.code === currentLanguage)?.label ?? 'English';
 
 	// Only show install icon if app is installable AND not already installed
 	const showInstallIcon = isInstallable && !isAppInstalled;
-
-	// Debug logging for install icon visibility
-	console.info('[HomeHeader] Install icon state:', {
-		isInstallable,
-		isAppInstalled,
-		showInstallIcon,
-	});
 
 	function handlePanel(modal: string) {
 		try {
@@ -45,7 +44,7 @@ export default function HomeHeader() {
 			else setShowLanguageModal(true);
 			setIsHomeMenuOpen(false);
 		} catch (error) {
-			console.error(error);
+			logError(error, { operation: 'home.HomeHeader.handlePanel' });
 		}
 	}
 
@@ -53,12 +52,25 @@ export default function HomeHeader() {
 		setShowLanguageModal(false);
 	}
 
+	function handleOpenInstallPrompt() {
+		window.dispatchEvent(new Event('freedi:open-install-prompt'));
+	}
+
 	return (
 		<div className={`homePage__header ${dir}`}>
-			<div className='homePage__header__wrapper'>
-				<h1 className='homePage__header__wrapper__title'>Delib.Org</h1>
+			<div className="homePage__header__wrapper">
+				<a href="https://wizcol.com" target="_blank" rel="noopener noreferrer">
+					<h1 className="homePage__header__wrapper__title">WizCol.com</h1>
+				</a>
 				<WaitingList />
-				<div className='homePage__header__wrapper__icons'>
+				<div className="homePage__header__wrapper__icons">
+					<Link to="/my/engagement" aria-label={t('engagement.myImpact')}>
+						<ProfileAvatar
+							photoURL={creator?.photoURL}
+							displayName={creator?.displayName}
+							level={level}
+						/>
+					</Link>
 					<Menu
 						isMenuOpen={isHomeMenuOpen}
 						setIsOpen={setIsHomeMenuOpen}
@@ -68,22 +80,27 @@ export default function HomeHeader() {
 								className="footer"
 								icon={<DisconnectIcon style={{ color: 'white' }} />}
 								label={t('Disconnect')}
-								onOptionClick={logOut} children={''} />
+								onOptionClick={logOut}
+								children={''}
+							/>
 						}
 					>
-
 						<MenuOption
 							icon={<LanguagesIcon style={{ color: '#4E88C7' }} />}
 							label={currentLabel}
-							onOptionClick={() => handlePanel('changeLanguage')} children={''} />
+							onOptionClick={() => handlePanel('changeLanguage')}
+							children={''}
+						/>
 						<MenuOption
 							icon={<InvitationIcon style={{ color: '#4E88C7' }} />}
 							label={t('Join with PIN number')}
-							onOptionClick={() => handlePanel('invitation')} children={''} />
+							onOptionClick={() => handlePanel('invitation')}
+							children={''}
+						/>
 					</Menu>
 
 					{showInstallIcon && (
-						<IconButton onClick={handleInstall}>
+						<IconButton onClick={handleOpenInstallPrompt}>
 							<InstallIcon />
 						</IconButton>
 					)}
@@ -92,9 +109,7 @@ export default function HomeHeader() {
 				</div>
 			</div>
 
-			{showInvitationModal && (
-				<InvitationModal setShowModal={setShowInvitationModal} />
-			)}
+			{showInvitationModal && <InvitationModal setShowModal={setShowInvitationModal} />}
 			{showLanguageModal && (
 				<Modal closeModal={closeModal}>
 					<ChangeLanguage

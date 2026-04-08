@@ -1,4 +1,4 @@
-import { Statement } from 'delib-npm';
+import { Statement } from '@freedi/shared-types';
 import {
 	Dispatch,
 	createContext,
@@ -23,9 +23,7 @@ const MapModelContext = createContext<MapProps | undefined>(undefined);
 export const useMapContext = (): MapProps => {
 	const context = useContext(MapModelContext);
 	if (!context) {
-		throw new Error(
-			'useMapContext must be used within a MyContextProvider'
-		);
+		throw new Error('useMapContext must be used within a MyContextProvider');
 	}
 
 	return context;
@@ -70,12 +68,8 @@ export const MapProvider: FC<MapProviderProps> = ({ children }) => {
 			mapContext,
 			setMapContext,
 		}),
-		[mapContext, setMapContext]
+		[mapContext, setMapContext],
 	);
 
-	return (
-		<MapModelContext.Provider value={contextValue}>
-			{children}
-		</MapModelContext.Provider>
-	);
+	return <MapModelContext.Provider value={contextValue}>{children}</MapModelContext.Provider>;
 };

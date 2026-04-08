@@ -1,8 +1,15 @@
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { storage, auth } from '../config';
+import { logError } from '@/utils/errorHandling';
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB (before resizing)
-export const ALLOWED_FILE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/svg+xml', 'image/webp'];
+export const ALLOWED_FILE_TYPES = [
+	'image/png',
+	'image/jpeg',
+	'image/gif',
+	'image/svg+xml',
+	'image/webp',
+];
 export const ICON_SIZE = 32; // 32x32 pixels
 
 export interface UploadResult {
@@ -68,7 +75,7 @@ async function resizeImage(file: File): Promise<Blob> {
 						}
 					},
 					'image/png',
-					0.9 // Quality (0.9 = 90%)
+					0.9, // Quality (0.9 = 90%)
 				);
 			};
 
@@ -87,10 +94,7 @@ async function resizeImage(file: File): Promise<Blob> {
 	});
 }
 
-export async function uploadAnchorIcon(
-	file: File,
-	statementId: string
-): Promise<UploadResult> {
+export async function uploadAnchorIcon(file: File, statementId: string): Promise<UploadResult> {
 	// Check if user is authenticated
 	if (!auth.currentUser) {
 		throw new Error('You must be logged in to upload images');
@@ -126,7 +130,7 @@ export async function uploadAnchorIcon(
 
 	return {
 		url,
-		path: fileName
+		path: fileName,
 	};
 }
 
@@ -137,7 +141,10 @@ export async function deleteAnchorIcon(path: string): Promise<void> {
 		const storageRef = ref(storage, path);
 		await deleteObject(storageRef);
 	} catch (error) {
-		console.error('Error deleting anchor icon:', error);
+		logError(error, {
+			operation: 'storage.uploadHelpers.deleteAnchorIcon',
+			metadata: { message: 'Error deleting anchor icon:' },
+		});
 		// Don't throw - deletion failures shouldn't break the UI
 	}
 }

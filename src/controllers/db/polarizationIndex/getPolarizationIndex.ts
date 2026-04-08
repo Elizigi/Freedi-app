@@ -1,23 +1,25 @@
-import { collection, onSnapshot, query, where } from "firebase/firestore";
-import { FireStore } from "../config";
-import { Collections, PolarizationIndex } from "delib-npm";
-import { store } from "@/redux/store";
-import { deletePolarizationIndex, setPolarizationIndexes } from "@/redux/userDemographic/userDemographicSlice";
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { FireStore } from '../config';
+import { Collections, PolarizationIndex } from '@freedi/shared-types';
+import { store } from '@/redux/store';
+import {
+	deletePolarizationIndex,
+	setPolarizationIndexes,
+} from '@/redux/userDemographic/userDemographicSlice';
+import { logError } from '@/utils/errorHandling';
 
 export function listenToPolarizationIndex(statementId: string) {
 	try {
-
 		if (!statementId) {
-			throw new Error("Statement ID is required to listen to polarization index.");
+			throw new Error('Statement ID is required to listen to polarization index.');
 		}
 
 		const dispatch = store.dispatch;
 
 		const polarizationIndexRef = collection(FireStore, Collections.polarizationIndex);
-		const q = query(polarizationIndexRef, where("parentId", "==", statementId));
+		const q = query(polarizationIndexRef, where('parentId', '==', statementId));
 
 		return onSnapshot(q, (polarizationIndexes) => {
-
 			polarizationIndexes.docChanges().forEach((change) => {
 				const data = change.doc.data() as PolarizationIndex;
 
@@ -29,7 +31,9 @@ export function listenToPolarizationIndex(statementId: string) {
 			});
 		});
 	} catch (error) {
-		console.error("Error listening to polarization index:", error);
-
+		logError(error, {
+			operation: 'polarizationIndex.getPolarizationIndex.listenToPolarizationIndex',
+			metadata: { message: 'Error listening to polarization index:' },
+		});
 	}
 }

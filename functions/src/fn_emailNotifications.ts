@@ -1,6 +1,6 @@
 import { db } from '.';
 import { logger, Request, Response } from 'firebase-functions/v1';
-import { Collections, Statement } from 'delib-npm';
+import { Collections, Statement } from '@freedi/shared-types';
 import * as nodemailer from 'nodemailer';
 import {
 	EmailSubscriber,
@@ -25,19 +25,15 @@ function isValidEmail(email: string): boolean {
 
 /**
  * Gets email transporter configuration
+ * Uses process.env variables (EMAIL_USER, EMAIL_PASSWORD, EMAIL_SERVICE)
  */
 async function getEmailTransporter(): Promise<nodemailer.Transporter | null> {
 	try {
-		const emailUser = process.env.EMAIL_USER ||
-			(process.env.FUNCTIONS_EMULATOR ? null :
-				(await import('firebase-functions')).config().email?.user);
-
-		const emailPassword = process.env.EMAIL_PASSWORD ||
-			(process.env.FUNCTIONS_EMULATOR ? null :
-				(await import('firebase-functions')).config().email?.password);
+		const emailUser = process.env.EMAIL_USER;
+		const emailPassword = process.env.EMAIL_PASSWORD;
 
 		if (!emailUser || !emailPassword) {
-			logger.warn('Email credentials not configured. Email notification skipped.');
+			logger.warn('Email credentials not configured (EMAIL_USER / EMAIL_PASSWORD missing)');
 
 			return null;
 		}
@@ -46,8 +42,8 @@ async function getEmailTransporter(): Promise<nodemailer.Transporter | null> {
 			service: process.env.EMAIL_SERVICE || 'gmail',
 			auth: {
 				user: emailUser,
-				pass: emailPassword
-			}
+				pass: emailPassword,
+			},
 		});
 	} catch (error) {
 		logger.error('Error creating email transporter:', error);
@@ -62,14 +58,19 @@ async function getEmailTransporter(): Promise<nodemailer.Transporter | null> {
  */
 export const addEmailSubscriber = async (req: Request, res: Response): Promise<void> => {
 	try {
-		const { email, statementId, userId, source = 'mass-consensus' } = req.body as AddEmailSubscriberRequest;
+		const {
+			email,
+			statementId,
+			userId,
+			source = 'mass-consensus',
+		} = req.body as AddEmailSubscriberRequest;
 
 		// Validate required fields
 		if (!email || !statementId) {
 			const response: AddEmailSubscriberResponse = {
 				ok: false,
 				message: 'Email and statementId are required',
-				error: 'MISSING_FIELDS'
+				error: 'MISSING_FIELDS',
 			};
 			res.status(400).send(response);
 
@@ -81,7 +82,7 @@ export const addEmailSubscriber = async (req: Request, res: Response): Promise<v
 			const response: AddEmailSubscriberResponse = {
 				ok: false,
 				message: 'Invalid email format',
-				error: 'INVALID_EMAIL'
+				error: 'INVALID_EMAIL',
 			};
 			res.status(400).send(response);
 
@@ -94,7 +95,7 @@ export const addEmailSubscriber = async (req: Request, res: Response): Promise<v
 			const response: AddEmailSubscriberResponse = {
 				ok: false,
 				message: 'Statement not found',
-				error: 'STATEMENT_NOT_FOUND'
+				error: 'STATEMENT_NOT_FOUND',
 			};
 			res.status(404).send(response);
 
@@ -114,7 +115,7 @@ export const addEmailSubscriber = async (req: Request, res: Response): Promise<v
 			const response: AddEmailSubscriberResponse = {
 				ok: true,
 				message: 'Email already subscribed',
-				subscriberId: existingSubscriber.docs[0].id
+				subscriberId: existingSubscriber.docs[0].id,
 			};
 			res.send(response);
 
@@ -130,7 +131,7 @@ export const addEmailSubscriber = async (req: Request, res: Response): Promise<v
 			userId: userId || undefined,
 			createdAt: Date.now(),
 			isActive: true,
-			source
+			source,
 		};
 
 		await db.collection(EMAIL_SUBSCRIBERS_COLLECTION).doc(subscriberId).set(subscriber);
@@ -138,23 +139,22 @@ export const addEmailSubscriber = async (req: Request, res: Response): Promise<v
 		logger.info('Email subscriber added', {
 			subscriberId,
 			statementId,
-			source
+			source,
 		});
 
 		const response: AddEmailSubscriberResponse = {
 			ok: true,
 			message: 'Successfully subscribed to email notifications',
-			subscriberId
+			subscriberId,
 		};
 		res.send(response);
-
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
 		logger.error('Error adding email subscriber', { error: errorMessage });
 		const response: AddEmailSubscriberResponse = {
 			ok: false,
 			message: 'Failed to add email subscriber',
-			error: errorMessage
+			error: errorMessage,
 		};
 		res.status(500).send(response);
 	}
@@ -166,21 +166,15 @@ export const addEmailSubscriber = async (req: Request, res: Response): Promise<v
  */
 export const sendEmailToSubscribers = async (req: Request, res: Response): Promise<void> => {
 	try {
-		const {
-			statementId,
-			subject,
-			message,
-			adminId,
-			buttonText,
-			buttonUrl
-		} = req.body as SendEmailNotificationRequest;
+		const { statementId, subject, message, adminId, buttonText, buttonUrl } =
+			req.body as SendEmailNotificationRequest;
 
 		// Validate required fields
 		if (!statementId || !subject || !message || !adminId) {
 			const response: SendEmailNotificationResponse = {
 				ok: false,
 				message: 'Missing required fields: statementId, subject, message, and adminId are required',
-				error: 'MISSING_FIELDS'
+				error: 'MISSING_FIELDS',
 			};
 			res.status(400).send(response);
 
@@ -199,7 +193,7 @@ export const sendEmailToSubscribers = async (req: Request, res: Response): Promi
 			const response: SendEmailNotificationResponse = {
 				ok: false,
 				message: 'User is not subscribed to this statement',
-				error: 'NOT_AUTHORIZED'
+				error: 'NOT_AUTHORIZED',
 			};
 			res.status(403).send(response);
 
@@ -211,7 +205,7 @@ export const sendEmailToSubscribers = async (req: Request, res: Response): Promi
 			const response: SendEmailNotificationResponse = {
 				ok: false,
 				message: 'Only admins can send email notifications',
-				error: 'NOT_AUTHORIZED'
+				error: 'NOT_AUTHORIZED',
 			};
 			res.status(403).send(response);
 
@@ -224,7 +218,7 @@ export const sendEmailToSubscribers = async (req: Request, res: Response): Promi
 			const response: SendEmailNotificationResponse = {
 				ok: false,
 				message: 'Statement not found',
-				error: 'STATEMENT_NOT_FOUND'
+				error: 'STATEMENT_NOT_FOUND',
 			};
 			res.status(404).send(response);
 
@@ -244,7 +238,7 @@ export const sendEmailToSubscribers = async (req: Request, res: Response): Promi
 				ok: true,
 				message: 'No email subscribers found for this statement',
 				sentCount: 0,
-				failedCount: 0
+				failedCount: 0,
 			};
 			res.send(response);
 
@@ -257,21 +251,20 @@ export const sendEmailToSubscribers = async (req: Request, res: Response): Promi
 			const response: SendEmailNotificationResponse = {
 				ok: false,
 				message: 'Email service not configured',
-				error: 'EMAIL_NOT_CONFIGURED'
+				error: 'EMAIL_NOT_CONFIGURED',
 			};
 			res.status(500).send(response);
 
 			return;
 		}
 
-		const emailUser = process.env.EMAIL_USER ||
-			(await import('firebase-functions')).config().email?.user;
+		const emailUser = process.env.EMAIL_USER;
 
 		// Send emails to all subscribers
 		let sentCount = 0;
 		let failedCount = 0;
 
-		const subscribers = subscribersSnapshot.docs.map(doc => doc.data() as EmailSubscriber);
+		const subscribers = subscribersSnapshot.docs.map((doc) => doc.data() as EmailSubscriber);
 
 		for (const subscriber of subscribers) {
 			try {
@@ -280,7 +273,7 @@ export const sendEmailToSubscribers = async (req: Request, res: Response): Promi
 					statementTitle: statement.statement,
 					message,
 					buttonText,
-					buttonUrl
+					buttonUrl,
 				});
 
 				await transporter.sendMail({
@@ -288,21 +281,21 @@ export const sendEmailToSubscribers = async (req: Request, res: Response): Promi
 					to: subscriber.email,
 					subject: subject,
 					html: emailHtml,
-					text: `${message}\n\nView more at: ${buttonUrl || `https://freedi.tech/statement/${statementId}`}`
+					text: `${message}\n\nView more at: ${buttonUrl || `https://freedi.tech/statement/${statementId}`}`,
 				});
 
 				sentCount++;
 				logger.info('Email sent successfully', {
 					subscriberId: subscriber.subscriberId,
 					email: subscriber.email,
-					statementId
+					statementId,
 				});
 			} catch (emailError) {
 				failedCount++;
 				logger.error('Failed to send email to subscriber', {
 					subscriberId: subscriber.subscriberId,
 					email: subscriber.email,
-					error: emailError instanceof Error ? emailError.message : 'Unknown error'
+					error: emailError instanceof Error ? emailError.message : 'Unknown error',
 				});
 			}
 		}
@@ -311,25 +304,24 @@ export const sendEmailToSubscribers = async (req: Request, res: Response): Promi
 			ok: true,
 			message: `Email notification sent to ${sentCount} subscribers`,
 			sentCount,
-			failedCount
+			failedCount,
 		};
 
 		logger.info('Email notification batch completed', {
 			statementId,
 			sentCount,
 			failedCount,
-			adminId
+			adminId,
 		});
 
 		res.send(response);
-
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
 		logger.error('Error sending email notifications', { error: errorMessage });
 		const response: SendEmailNotificationResponse = {
 			ok: false,
 			message: 'Failed to send email notifications',
-			error: errorMessage
+			error: errorMessage,
 		};
 		res.status(500).send(response);
 	}
@@ -358,9 +350,8 @@ export const getEmailSubscriberCount = async (req: Request, res: Response): Prom
 		res.send({
 			ok: true,
 			count: subscribersSnapshot.size,
-			statementId
+			statementId,
 		});
-
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
 		logger.error('Error getting email subscriber count', { error: errorMessage });
@@ -382,7 +373,7 @@ export const unsubscribeEmail = async (req: Request, res: Response): Promise<voi
 		if (subscriberId) {
 			// Unsubscribe by subscriber ID
 			await db.collection(EMAIL_SUBSCRIBERS_COLLECTION).doc(subscriberId).update({
-				isActive: false
+				isActive: false,
 			});
 		} else if (email && statementId) {
 			// Unsubscribe by email and statement
@@ -393,18 +384,19 @@ export const unsubscribeEmail = async (req: Request, res: Response): Promise<voi
 				.get();
 
 			const batch = db.batch();
-			subscribersSnapshot.docs.forEach(doc => {
+			subscribersSnapshot.docs.forEach((doc) => {
 				batch.update(doc.ref, { isActive: false });
 			});
 			await batch.commit();
 		} else {
-			res.status(400).send({ ok: false, message: 'Either subscriberId or (email and statementId) is required' });
+			res
+				.status(400)
+				.send({ ok: false, message: 'Either subscriberId or (email and statementId) is required' });
 
 			return;
 		}
 
 		res.send({ ok: true, message: 'Successfully unsubscribed from email notifications' });
-
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
 		logger.error('Error unsubscribing email', { error: errorMessage });

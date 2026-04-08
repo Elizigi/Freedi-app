@@ -1,8 +1,17 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { Collections, getRandomUID, Statement, StatementSchema, StatementSnapShot, StatementType } from 'delib-npm';
+import {
+	Collections,
+	getRandomUID,
+	Statement,
+	StatementSchema,
+	StatementSnapShot,
+	StatementType,
+} from '@freedi/shared-types';
 import { Response, Request, onInit, logger } from 'firebase-functions/v1';
 import { parse } from 'valibot';
 import { db } from '.';
+import { GEMINI_MODEL } from './config/gemini';
+import { logError } from './utils/errorHandling';
 
 interface SimpleDescendants {
 	statement: string;
@@ -17,19 +26,18 @@ let genAI: GoogleGenerativeAI;
 
 onInit(() => {
 	try {
-		if (!process.env.GOOGLE_API_KEY) {
-			throw new Error('Missing GOOGLE_API_KEY environment variable');
+		if (!process.env.GEMINI_API_KEY) {
+			throw new Error('Missing GEMINI_API_KEY environment variable');
 		}
 
-		genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+		genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 	} catch (error) {
-		console.error('Error initializing GenAI', error);
+		logError(error, { operation: 'clusters.initGenAI' });
 	}
 });
 
 export async function getCluster(req: Request, res: Response) {
 	try {
-
 		const statementId = req.body.statementId as Statement[];
 		if (!statementId || typeof statementId !== 'string') {
 			throw new Error('Invalid input: statementId is required');
@@ -37,14 +45,15 @@ export async function getCluster(req: Request, res: Response) {
 
 		const [topicDB, descendantsDB] = await Promise.all([
 			db.collection(Collections.statements).doc(statementId).get(),
-			db.collection(Collections.statements).where("parentId", "==", statementId).get()
+			db.collection(Collections.statements).where('parentId', '==', statementId).get(),
 		]);
-		const descendants = descendantsDB.docs.map((doc) => parse(StatementSchema, doc.data())).filter((statement) => statement.isCluster !== true) as Statement[];
+		const descendants = descendantsDB.docs
+			.map((doc) => parse(StatementSchema, doc.data()))
+			.filter((statement) => statement.isCluster !== true) as Statement[];
 
 		const topic = topicDB.data() as Statement;
 
 		if (!topic || !topic.statementId) {
-
 			res.status(400).send({ error: 'Invalid input: topic is required', ok: false });
 
 			return;
@@ -56,7 +65,6 @@ export async function getCluster(req: Request, res: Response) {
 		}
 
 		if (!descendants || descendants.length === 0) {
-
 			logger.log('No descendants found for the given statementId:', statementId);
 			res.status(200).send({ message: 'No descendants found', descendants: [], ok: true });
 
@@ -68,7 +76,7 @@ export async function getCluster(req: Request, res: Response) {
 			statementId: descendant.statementId,
 		}));
 
-		const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+		const model = genAI.getGenerativeModel({ model: GEMINI_MODEL });
 
 		const prompt = `
         Hi Gemini! I need your help to cluster some statements based on their relevance to a main topic.
@@ -137,13 +145,14 @@ export async function getCluster(req: Request, res: Response) {
 				consensus: 0,
 				randomSeed: Math.random(),
 				lastUpdate: new Date().getTime(),
-			}
+			};
 			batch.set(groupRef, newStatement);
 			group.statements.forEach((statement: SimpleDescendants) => {
 				const statementRef = db.collection(Collections.statements).doc(statement.statementId);
 				batch.update(statementRef, {
 					parentId: id,
 					parents: [...(topic.parents || []), topic.statementId],
+					lastUpdate: Date.now(),
 				});
 			});
 		});
@@ -156,10 +165,10 @@ export async function getCluster(req: Request, res: Response) {
 		logger.log('Snapshot saved successfully:', snapshot.topic.statementId, newSnapshot.id);
 
 		res.status(200).send({ text, descendants, ok: true, groups });
-
 	} catch (error) {
-		res.status(500).send({ error: error instanceof Error ? error.message : 'Unknown server error', ok: false });
-
+		res
+			.status(500)
+			.send({ error: error instanceof Error ? error.message : 'Unknown server error', ok: false });
 	}
 }
 
@@ -176,9 +185,8 @@ function convertStringToJson(input: string): Group[] | null {
 		return jsonArray as Group[];
 	} catch (error) {
 		// Handle any parsing errors
-		console.error('Error parsing JSON string:', error);
+		logError(error, { operation: 'clusters.convertStringToJson' });
 		throw new Error('Invalid JSON string provided');
-		// Return an empty array in case of error
 	}
 }
 
@@ -190,7 +198,11 @@ export const recoverLastSnapshot = async (req: Request, res: Response) => {
 		}
 
 		const snapshotsRef = db.collection(Collections.statementSnapShots);
-		const snapshotDoc = await snapshotsRef.where("topic.statementId", "==", snapshotId).orderBy("createdAt", "desc").limit(1).get();
+		const snapshotDoc = await snapshotsRef
+			.where('topic.statementId', '==', snapshotId)
+			.orderBy('createdAt', 'desc')
+			.limit(1)
+			.get();
 
 		if (snapshotDoc.empty) {
 			throw new Error('Snapshot not found');
@@ -200,7 +212,11 @@ export const recoverLastSnapshot = async (req: Request, res: Response) => {
 
 		//recover the snapshot data
 		const batch = db.batch();
-		const clustersDB = await db.collection(Collections.statements).where("parentId", "==", snapshotData.topic.statementId).where("isCluster", "==", true).get();
+		const clustersDB = await db
+			.collection(Collections.statements)
+			.where('parentId', '==', snapshotData.topic.statementId)
+			.where('isCluster', '==', true)
+			.get();
 		const clustersIds = clustersDB.docs.map((doc) => doc.id as string);
 		const descendants = snapshotData.descendants;
 
@@ -210,6 +226,7 @@ export const recoverLastSnapshot = async (req: Request, res: Response) => {
 				parentId: snapshotData.topic.statementId,
 				parents: [...(snapshotData.topic.parents || []), snapshotData.topic.statementId],
 				topParentId: snapshotData.topic.topParentId,
+				lastUpdate: Date.now(),
 			});
 		});
 
@@ -223,6 +240,8 @@ export const recoverLastSnapshot = async (req: Request, res: Response) => {
 
 		res.status(200).send({ snapshotData, ok: true });
 	} catch (error) {
-		res.status(500).send({ error: error instanceof Error ? error.message : 'Unknown server error', ok: false });
+		res
+			.status(500)
+			.send({ error: error instanceof Error ? error.message : 'Unknown server error', ok: false });
 	}
-}
+};

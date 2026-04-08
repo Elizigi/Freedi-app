@@ -1,7 +1,10 @@
 import React, { FC, useState, useEffect, useRef, KeyboardEvent, ChangeEvent } from 'react';
-import Save from '@/assets/icons/saveIcon.svg?react';
+import { Statement } from '@freedi/shared-types';
+import CheckIcon from '@/assets/icons/checkIcon.svg?react';
+import XIcon from '@/assets/icons/x.svg?react';
 import Text from '../text/Text';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
+import { logError } from '@/utils/errorHandling';
 
 export interface EditTextProps {
 	value: string;
@@ -23,6 +26,8 @@ export interface EditTextProps {
 	fontSize?: string;
 	onEditStart?: () => void;
 	onEditEnd?: () => void;
+	/** Pass the full statement object to enable paragraph rendering */
+	statementObj?: Statement;
 }
 
 const EditText: FC<EditTextProps> = ({
@@ -44,7 +49,8 @@ const EditText: FC<EditTextProps> = ({
 	autoFocus = true,
 	fontSize,
 	onEditStart,
-	onEditEnd
+	onEditEnd,
+	statementObj,
 }) => {
 	const [isEditing, setIsEditing] = useState(false);
 	const [primaryText, setPrimaryText] = useState(value);
@@ -104,13 +110,16 @@ const EditText: FC<EditTextProps> = ({
 	const handleSave = () => {
 		try {
 			if (required && !primaryText.trim()) return;
-			
+
 			onSave?.(primaryText, secondaryText);
 			setRawText('');
 			setIsEditing(false);
 			onEditEnd?.();
 		} catch (error) {
-			console.error('Error saving text:', error);
+			logError(error, {
+				operation: 'edit.EditText.handleSave',
+				metadata: { message: 'Error saving text:' },
+			});
 		}
 	};
 
@@ -174,19 +183,19 @@ const EditText: FC<EditTextProps> = ({
 				style={{
 					direction,
 					textAlign: align,
-					cursor: editable && !editing ? 'pointer' : 'default'
 				}}
-				onClick={editable && !editing ? handleStartEdit : undefined}
-				role={editable && !editing ? 'button' : undefined}
-				tabIndex={editable && !editing ? 0 : undefined}
-				onKeyDown={editable && !editing ? (e) => e.key === 'Enter' && handleStartEdit() : undefined}
 			>
 				{variant === 'description' ? (
-					<Text description={secondaryText} fontSize={fontSize} />
+					<Text description={secondaryText} fontSize={fontSize} statementObj={statementObj} />
 				) : variant === 'statement' ? (
-					<Text statement={primaryText} fontSize={fontSize} />
+					<Text statement={primaryText} fontSize={fontSize} statementObj={statementObj} />
 				) : (
-					<Text statement={primaryText} description={secondaryText} fontSize={fontSize} />
+					<Text
+						statement={primaryText}
+						description={secondaryText}
+						fontSize={fontSize}
+						statementObj={statementObj}
+					/>
 				)}
 			</div>
 		);
@@ -208,7 +217,7 @@ const EditText: FC<EditTextProps> = ({
 						resize: 'none',
 						fontSize: fontSize || 'inherit',
 						width: '100%',
-						boxSizing: 'border-box'
+						boxSizing: 'border-box',
 					}}
 					value={rawText}
 					onChange={handleTextAreaChange}
@@ -238,12 +247,12 @@ const EditText: FC<EditTextProps> = ({
 					/>
 					<textarea
 						className={inputClassName}
-						style={{ 
-							direction, 
+						style={{
+							direction,
 							textAlign: align,
 							minHeight: '3rem',
 							overflow: 'hidden',
-							resize: 'none'
+							resize: 'none',
 						}}
 						value={secondaryText}
 						onChange={(e) => {
@@ -265,12 +274,12 @@ const EditText: FC<EditTextProps> = ({
 				<textarea
 					ref={inputRef as React.RefObject<HTMLTextAreaElement>}
 					className={inputClassName}
-					style={{ 
-						direction, 
+					style={{
+						direction,
 						textAlign: align,
 						minHeight: '3rem',
 						overflow: 'hidden',
-						resize: 'none'
+						resize: 'none',
 					}}
 					value={secondaryText}
 					onChange={(e) => {
@@ -307,19 +316,11 @@ const EditText: FC<EditTextProps> = ({
 			<div className={containerClassName}>
 				{renderEditContent()}
 				<div className={saveButtonClassName}>
-					<button
-						onClick={handleSave}
-						aria-label="Save"
-						type="button"
-					>
-						<Save />
+					<button onClick={handleSave} aria-label="Save" type="button">
+						<CheckIcon />
 					</button>
-					<button
-						onClick={handleCancel}
-						aria-label="Cancel"
-						type="button"
-					>
-						Cancel
+					<button onClick={handleCancel} aria-label="Cancel" type="button">
+						<XIcon />
 					</button>
 				</div>
 			</div>

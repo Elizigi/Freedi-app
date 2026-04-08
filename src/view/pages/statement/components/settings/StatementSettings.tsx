@@ -1,4 +1,5 @@
 import { FC, useEffect, useState } from 'react';
+import { logError } from '@/utils/errorHandling';
 
 // Third party imports
 import { useParams } from 'react-router';
@@ -10,19 +11,14 @@ import { getStatementFromDB } from '@/controllers/db/statements/getStatement';
 import { listenToMembers } from '@/controllers/db/statements/listenToStatements';
 import { useAppDispatch, useAppSelector } from '@/controllers/hooks/reduxHooks';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
-import {
-	setStatement,
-	statementSelector,
-} from '@/redux/statements/statementsSlice';
+import { setStatement, statementSelector } from '@/redux/statements/statementsSlice';
 
 // Hooks & Helpers
 
 // Custom components
 import Loader from '@/view/components/loaders/Loader';
-import { QuestionType, Statement } from 'delib-npm';
-import MassConsensusSettings from './components/massConsensusSettings/MassConsensusSettings';
+import { Statement } from '@freedi/shared-types';
 import MembersManagement from './components/membership/MembersManagement';
-import { RoomAssignment } from './components/roomAssignment';
 
 const StatementSettings: FC = () => {
 	// * Hooks * //
@@ -30,19 +26,13 @@ const StatementSettings: FC = () => {
 	const { t } = useTranslation();
 
 	// * State * //
-	const [parentStatement, setParentStatement] = useState<Statement | 'top'>(
-		'top'
-	);
+	const [parentStatement, setParentStatement] = useState<Statement | 'top'>('top');
 	const [isLoading] = useState(false);
-	const [statementToEdit, setStatementToEdit] = useState<
-		Statement | undefined
-	>();
+	const [statementToEdit, setStatementToEdit] = useState<Statement | undefined>();
 
 	// * Redux * //
 	const dispatch = useAppDispatch();
-	const statement: Statement | undefined = useAppSelector(
-		statementSelector(statementId)
-	);
+	const statement: Statement | undefined = useAppSelector(statementSelector(statementId));
 
 	useEffect(() => {
 		try {
@@ -59,20 +49,19 @@ const StatementSettings: FC = () => {
 				getStatementFromDB(statement.parentId)
 					.then((parentStatement) => {
 						try {
-							if (!parentStatement)
-								throw new Error('no parent statement');
+							if (!parentStatement) throw new Error('no parent statement');
 
 							setParentStatement(parentStatement);
 						} catch (error) {
-							console.error(error);
+							logError(error, { operation: 'settings.StatementSettings.unknown' });
 						}
 					})
 					.catch((error) => {
-						console.error(error);
+						logError(error, { operation: 'settings.StatementSettings.unknown' });
 					});
 			}
 		} catch (error) {
-			console.error(error);
+			logError(error, { operation: 'settings.StatementSettings.unknown' });
 		}
 	}, [statement]);
 
@@ -87,8 +76,7 @@ const StatementSettings: FC = () => {
 					setStatementToEdit(statement);
 				} else {
 					(async () => {
-						const statementDB =
-							await getStatementFromDB(statementId);
+						const statementDB = await getStatementFromDB(statementId);
 						if (statementDB) {
 							dispatch(setStatement(statementDB));
 							setStatementToEdit(statementDB);
@@ -101,33 +89,27 @@ const StatementSettings: FC = () => {
 
 			return () => {
 				if (unsubscribe) unsubscribe();
-
 			};
 		} catch (error) {
-			console.error(error);
+			logError(error, { operation: 'settings.StatementSettings.unknown' });
 		}
 	}, [statementId]);
 
-	const isMassConsensus = statement?.questionSettings?.questionType === QuestionType.massConsensus;
-
 	return (
-		<div className='test'>
+		<div className="test">
 			{isLoading || !statementToEdit ? (
-				<div className='center'>
+				<div className="center">
 					<h2>{t('Updating')}</h2>
 					<Loader />
 				</div>
 			) : (
 				<>
-
 					<StatementSettingsForm
 						statement={statementToEdit}
 						parentStatement={parentStatement}
 						setStatementToEdit={setStatementToEdit}
 					/>
 					<MembersManagement statement={statementToEdit} />
-					<RoomAssignment statement={statementToEdit} />
-					{isMassConsensus && <MassConsensusSettings />}
 				</>
 			)}
 		</div>

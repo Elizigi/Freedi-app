@@ -1,12 +1,11 @@
+import { Paragraph, ParagraphType } from '@freedi/shared-types';
+
 export function logBase(x: number, b: number) {
 	return Math.log(x) / Math.log(b);
 }
 
 //get top selections from selections
-export function getTopSelectionKeys(
-	selections: { [key: string]: number },
-	limit = 1,
-): string[] {
+export function getTopSelectionKeys(selections: { [key: string]: number }, limit = 1): string[] {
 	const sortedSelections = Object.entries(selections)
 		.sort((a, b) => b[1] - a[1])
 		.slice(0, limit);
@@ -16,7 +15,7 @@ export function getTopSelectionKeys(
 
 export const isEqualObjects = (objA: object | undefined, objB: object | undefined) => {
 	return JSON.stringify(objA) === JSON.stringify(objB);
-}
+};
 
 export function getRandomColor() {
 	//let them be dark colors
@@ -27,4 +26,76 @@ export function getRandomColor() {
 	}
 
 	return color;
+}
+
+/**
+ * Generate a unique paragraph ID
+ */
+export function generateParagraphId(): string {
+	return `p_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+}
+
+/**
+ * Get plain text from paragraphs array
+ */
+export function getParagraphsText(paragraphs: Paragraph[] | undefined): string {
+	if (!paragraphs || paragraphs.length === 0) return '';
+
+	return [...paragraphs]
+		.sort((a, b) => a.order - b.order)
+		.map((p) => p.content)
+		.join('\n');
+}
+
+/**
+ * Check if paragraphs have content
+ */
+export function hasParagraphsContent(paragraphs: Paragraph[] | undefined): boolean {
+	if (!paragraphs || paragraphs.length === 0) return false;
+
+	return paragraphs.some((p) => p.content && p.content.trim().length > 0);
+}
+
+/**
+ * Convert text to paragraphs array
+ */
+export function textToParagraphs(text: string): Paragraph[] | undefined {
+	if (!text || !text.trim()) return undefined;
+
+	const lines = text.split('\n').filter((line) => line.trim());
+
+	return lines.map((line, index) => ({
+		paragraphId: `p-${Date.now()}-${index}`,
+		type: ParagraphType.paragraph,
+		content: line,
+		order: index,
+	}));
+}
+
+const DESCRIPTION_MAX_LENGTH = 200;
+
+/**
+ * Generate a description string (~200 chars) from child paragraph statements.
+ * Children are sorted by createdAt and joined with ' | '.
+ */
+export function generateDescriptionFromChildren(
+	children: { statement: string; createdAt: number }[],
+): string {
+	if (children.length === 0) return '';
+
+	const sorted = [...children].sort((a, b) => a.createdAt - b.createdAt);
+	let description = '';
+
+	for (const child of sorted) {
+		const text = child.statement.trim();
+		if (!text) continue;
+		description += description.length === 0 ? text : ' | ' + text;
+		if (description.length >= DESCRIPTION_MAX_LENGTH) break;
+	}
+
+	if (description.length > DESCRIPTION_MAX_LENGTH) {
+		description = description.substring(0, DESCRIPTION_MAX_LENGTH - 3) + '...';
+	}
+
+	return description;
 }

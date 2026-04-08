@@ -1,17 +1,12 @@
-import {
-	Timestamp,
-	doc,
-	setDoc,
-	deleteDoc,
-	getDoc,
-} from 'firebase/firestore';
-import { FireStore } from '../config';
-import { Collections, Creator, Online, OnlineSchema } from 'delib-npm';
+import { setDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { Creator, Online, OnlineSchema, Collections } from '@freedi/shared-types';
 import { parse } from 'valibot';
+import { createDocRef, getCurrentTimestamp } from '@/utils/firebaseUtils';
+import { logError } from '@/utils/errorHandling';
 
 export async function setUserOnlineToDB(
 	statementId: string,
-	user: Creator
+	user: Creator,
 ): Promise<string | undefined> {
 	try {
 		if (!statementId) throw new Error('Statement ID is undefined');
@@ -30,15 +25,14 @@ export async function setUserOnlineToDB(
 				email: user.email || null,
 				advanceUser: user.advanceUser || false,
 			},
-			// Use Timestamp.now().toMillis() to get a number that validates properly
-			lastUpdated: Timestamp.now().toMillis(),
+			lastUpdated: getCurrentTimestamp(),
 			tabInFocus: true,
 		};
 
 		// Validate with your schema
 		parse(OnlineSchema, onlineUser);
 
-		const onlineRef = doc(FireStore, Collections.online, onlineId);
+		const onlineRef = createDocRef(Collections.online, onlineId);
 
 		// Force write to server first, then local cache
 		await setDoc(onlineRef, onlineUser, {
@@ -48,7 +42,10 @@ export async function setUserOnlineToDB(
 
 		return onlineId;
 	} catch (error) {
-		console.error('Error setting user online:', error);
+		logError(error, {
+			operation: 'online.setOnline.unknown',
+			metadata: { message: 'Error setting user online:' },
+		});
 
 		return undefined;
 	}
@@ -57,61 +54,68 @@ export async function setUserOnlineToDB(
 export async function updateUserTabFocusToDB(
 	statementId: string,
 	userId: string,
-	tabInFocus: boolean
+	tabInFocus: boolean,
 ): Promise<void> {
 	try {
 		if (!statementId) throw new Error('Statement ID is undefined');
 		if (!userId) throw new Error('User ID is undefined');
 
 		const onlineId = `${userId}--${statementId}`;
-		const onlineUserRef = doc(FireStore, Collections.online, onlineId);
+		const onlineUserRef = createDocRef(Collections.online, onlineId);
 
 		// Use setDoc with merge to create or update
 		await setDoc(
 			onlineUserRef,
 			{
 				tabInFocus,
-				lastUpdated: Timestamp.now().toMillis(),
+				lastUpdated: getCurrentTimestamp(),
 			},
-			{ merge: true }
+			{ merge: true },
 		);
 	} catch (error) {
-		console.error('Error updating tab focus:', error);
+		logError(error, {
+			operation: 'online.setOnline.updateUserTabFocusToDB',
+			metadata: { message: 'Error updating tab focus:' },
+		});
 	}
 }
 
 export async function removeUserFromOnlineToDB(
 	statementId: string | null | undefined,
-	userId: string | null | undefined
+	userId: string | null | undefined,
 ): Promise<void> {
 	try {
 		// Early return if either parameter is null/undefined
 		if (!statementId || !userId) {
 			console.info('removeUserFromOnlineToDB: Skipping - missing statementId or userId');
-			
-return;
+
+			return;
 		}
 
 		// Validate that parameters are valid strings
 		if (typeof statementId !== 'string' || typeof userId !== 'string') {
-			console.error('removeUserFromOnlineToDB: Invalid parameter types');
-			
-return;
+			logError(new Error('removeUserFromOnlineToDB: Invalid parameter types'), {
+				operation: 'online.setOnline.removeUserFromOnlineToDB',
+			});
+
+			return;
 		}
 
 		// Additional validation to prevent empty strings
 		if (statementId.trim() === '' || userId.trim() === '') {
-			console.error('removeUserFromOnlineToDB: Empty statementId or userId');
-			
-return;
+			logError(new Error('removeUserFromOnlineToDB: Empty statementId or userId'), {
+				operation: 'online.setOnline.removeUserFromOnlineToDB',
+			});
+
+			return;
 		}
 
 		const onlineId = `${userId}--${statementId}`;
 
 		// Check if document exists before trying to delete
-		const onlineUserRef = doc(FireStore, Collections.online, onlineId);
+		const onlineUserRef = createDocRef(Collections.online, onlineId);
 		const docSnapshot = await getDoc(onlineUserRef);
-		
+
 		if (docSnapshot.exists()) {
 			await deleteDoc(onlineUserRef);
 		}
@@ -119,7 +123,10 @@ return;
 		// Only log actual errors, not permission issues from non-existent docs
 		const err = error as { code?: string; message?: string };
 		if (err?.code !== 'permission-denied' || err?.message?.includes('document does not exist')) {
-			console.error('Error removing user from online:', error);
+			logError(error, {
+				operation: 'online.setOnline.unknown',
+				metadata: { message: 'Error removing user from online:' },
+			});
 		}
 	}
 }

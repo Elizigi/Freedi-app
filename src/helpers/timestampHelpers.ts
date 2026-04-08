@@ -1,6 +1,18 @@
 /**
+ * Check if a value is a Firestore VectorValue (embedding)
+ * VectorValue objects have a _values property containing the embedding array
+ */
+function isVectorValue(value: unknown): boolean {
+	if (value == null || typeof value !== 'object') return false;
+	const obj = value as Record<string, unknown>;
+
+	return '_values' in obj && Array.isArray(obj._values);
+}
+
+/**
  * Convert Firebase Timestamp objects to milliseconds recursively
- * This helper ensures all timestamp fields are numbers for valibot validation
+ * Also removes non-serializable Firestore types like VectorValue (embeddings)
+ * This helper ensures all values are serializable for Redux and valibot validation
  */
 export function convertTimestampsToMillis(data: unknown): unknown {
 	// Handle null/undefined
@@ -19,7 +31,7 @@ export function convertTimestampsToMillis(data: unknown): unknown {
 
 	// Handle arrays recursively
 	if (Array.isArray(data)) {
-		return data.map(item => convertTimestampsToMillis(item));
+		return data.map((item) => convertTimestampsToMillis(item));
 	}
 
 	// Handle objects recursively
@@ -27,6 +39,12 @@ export function convertTimestampsToMillis(data: unknown): unknown {
 	for (const key in obj) {
 		if (Object.prototype.hasOwnProperty.call(obj, key)) {
 			const value = obj[key];
+
+			// Skip VectorValue (embedding) fields - they are non-serializable
+			// and only used server-side for similarity search
+			if (isVectorValue(value)) {
+				continue;
+			}
 
 			// Check if value is a Timestamp
 			const valueObj = value as Record<string, unknown> & { toMillis?: () => number };
@@ -54,4 +72,64 @@ export function convertTimestampsToMillis(data: unknown): unknown {
  */
 export function preprocessFirestoreData(data: unknown): unknown {
 	return convertTimestampsToMillis(data);
+}
+
+/**
+ * Normalize statement data before valibot parsing
+ * - Converts timestamps to milliseconds
+ * - Fills in missing topParentId for legacy data
+ *
+ * This handles old Firestore documents that may not have topParentId set
+ */
+export function normalizeStatementData(data: unknown): unknown {
+	// First convert timestamps
+	const converted = convertTimestampsToMillis(data);
+
+	// Handle null/undefined
+	if (converted == null || typeof converted !== 'object') return converted;
+
+	const obj = converted as Record<string, unknown>;
+
+	// Fix legacy doc objects missing required isDoc field
+	if (obj.doc && typeof obj.doc === 'object') {
+		const docObj = obj.doc as Record<string, unknown>;
+		if (docObj.isDoc === undefined) {
+			docObj.isDoc = false;
+		}
+	}
+
+	// Fill in missing or null consensus for documents created without it (e.g., MC comments)
+	if (obj.statementId && (obj.consensus === undefined || obj.consensus === null)) {
+		obj.consensus = 0;
+	}
+
+	// Fix null timestamps for required number fields
+	if (obj.statementId) {
+		const now = Date.now();
+		if (obj.createdAt === null || obj.createdAt === undefined) {
+			obj.createdAt = now;
+		}
+		if (obj.lastUpdate === null || obj.lastUpdate === undefined) {
+			obj.lastUpdate = (obj.createdAt as number) ?? now;
+		}
+	}
+
+	// Fill in missing topParentId for legacy data
+	if (obj.statementId && !obj.topParentId) {
+		// For top-level statements (where parentId equals statementId or parentId is 'top'),
+		// topParentId should equal statementId
+		if (obj.parentId === obj.statementId || obj.parentId === 'top' || !obj.parentId) {
+			obj.topParentId = obj.statementId;
+		} else {
+			// For child statements, use parentId as a fallback
+			// Note: This may not be accurate for deeply nested statements,
+			// but it's better than failing validation
+			obj.topParentId = obj.parentId;
+			console.info(
+				`[normalizeStatementData] Filled missing topParentId for statement ${obj.statementId} using parentId ${obj.parentId}`,
+			);
+		}
+	}
+
+	return obj;
 }

@@ -6,6 +6,8 @@ import {
   getAllSolutionsSorted,
 } from '@/lib/firebase/queries';
 import { logError } from '@/lib/utils/errorHandling';
+import { getParagraphsText } from '@/lib/utils/paragraphUtils';
+import { checkRateLimit, RATE_LIMITS } from '@/lib/utils/rateLimit';
 
 /**
  * POST /api/ai/feedback
@@ -13,6 +15,12 @@ import { logError } from '@/lib/utils/errorHandling';
  * Uses Gemini API to analyze top-performing solutions
  */
 export async function POST(request: NextRequest) {
+  // Rate limit check - strict for expensive AI operations
+  const rateLimitResponse = checkRateLimit(request, RATE_LIMITS.SENSITIVE);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   try {
     const { questionId, userId } = await request.json();
 
@@ -51,7 +59,7 @@ export async function POST(request: NextRequest) {
 You are an expert facilitator helping people improve their solutions to community questions.
 
 Question: "${question.statement}"
-${question.description ? `Context: "${question.description}"` : ''}
+${getParagraphsText(question.paragraphs) ? `Context: "${getParagraphsText(question.paragraphs)}"` : ''}
 
 The user submitted these solutions:
 ${userSolutions

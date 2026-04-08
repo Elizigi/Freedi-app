@@ -1,13 +1,5 @@
 import { Unsubscribe } from 'firebase/auth';
-import {
-	collection,
-	query,
-	where,
-	doc,
-	getDocs,
-	getDoc,
-} from 'firebase/firestore';
-import { FireStore } from '../config';
+import { query, where, getDocs, getDoc } from 'firebase/firestore';
 import { setEvaluationToStore } from '@/redux/evaluations/evaluationsSlice';
 import { AppDispatch, store } from '@/redux/store';
 import { parse } from 'valibot';
@@ -17,48 +9,46 @@ import {
 	SelectionFunction,
 	Collections,
 	UserSchema,
-} from 'delib-npm';
+} from '@freedi/shared-types';
 import { getStatementSubscriptionId } from '@/controllers/general/helpers';
 import {
 	createManagedCollectionListener,
 	createManagedDocumentListener,
-	generateListenerKey
+	generateListenerKey,
 } from '@/controllers/utils/firestoreListenerHelpers';
+import { createCollectionRef, createEvaluationRef, createDocRef } from '@/utils/firebaseUtils';
+import { logError } from '@/utils/errorHandling';
 
 export const listenToEvaluations = (
 	parentId: string,
-	selectionFunction?: SelectionFunction
+	selectionFunction?: SelectionFunction,
+	userId?: string,
 ): Unsubscribe => {
 	try {
 		const dispatch = store.dispatch as AppDispatch;
-		const evaluationsRef = collection(FireStore, Collections.evaluations);
-		const user = store.getState().creator.creator;
+		const evaluationsRef = createCollectionRef(Collections.evaluations);
 
-		if (!user) throw new Error('User is undefined');
-		const evaluatorId = user.uid;
+		const evaluatorId = userId ?? store.getState().creator.creator?.uid;
+		if (!evaluatorId) throw new Error('User is undefined');
 
 		const q = selectionFunction
 			? query(
-				evaluationsRef,
-				where('parentId', '==', parentId),
-				where('evaluatorId', '==', evaluatorId),
-				where(
-					'evaluation.selectionFunction',
-					'==',
-					selectionFunction
+					evaluationsRef,
+					where('parentId', '==', parentId),
+					where('evaluatorId', '==', evaluatorId),
+					where('evaluation.selectionFunction', '==', selectionFunction),
 				)
-			)
 			: query(
-				evaluationsRef,
-				where('parentId', '==', parentId),
-				where('evaluatorId', '==', evaluatorId)
-			);
+					evaluationsRef,
+					where('parentId', '==', parentId),
+					where('evaluatorId', '==', evaluatorId),
+				);
 
 		// Generate unique key for this listener
 		const listenerKey = generateListenerKey(
 			'evaluations',
 			'statement',
-			`${parentId}-${evaluatorId}-${selectionFunction || 'all'}`
+			`${parentId}-${evaluatorId}-${selectionFunction || 'all'}`,
 		);
 
 		// Use managed listener system
@@ -69,49 +59,39 @@ export const listenToEvaluations = (
 				try {
 					evaluationsDB.forEach((evaluationDB) => {
 						try {
-							const evaluation = parse(
-								EvaluationSchema,
-								evaluationDB.data()
-							);
+							const evaluation = parse(EvaluationSchema, evaluationDB.data());
 
 							dispatch(setEvaluationToStore(evaluation));
 						} catch (error) {
-							console.error(error);
+							logError(error, { operation: 'evaluation.getEvaluation.unknown' });
 						}
 					});
 				} catch (error) {
-					console.error(error);
+					logError(error, { operation: 'evaluation.getEvaluation.unknown' });
 				}
 			},
-			(error) => console.error('Error in evaluations listener:', error),
-			'query'
+			(error) =>
+				logError(error, {
+					operation: 'evaluation.getEvaluation.unknown',
+					metadata: { message: 'Error in evaluations listener:' },
+				}),
+			'query',
 		);
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'evaluation.getEvaluation.unknown' });
 
-		return () => { };
+		return () => {};
 	}
 };
 
-export function listenToEvaluation(
-	statementId: string,
-	userId: string
-): () => void {
+export function listenToEvaluation(statementId: string, userId: string): () => void {
 	try {
 		const evaluationId = getStatementSubscriptionId(statementId, userId);
 
-		const evaluationsRef = doc(
-			FireStore,
-			Collections.evaluations,
-			evaluationId
-		);
+		const evaluationsRef = createEvaluationRef(evaluationId);
 
 		// Generate unique key for this listener
-		const listenerKey = generateListenerKey(
-			'evaluation',
-			'single',
-			evaluationId
-		);
+		const listenerKey = generateListenerKey('evaluation', 'single', evaluationId);
 
 		// Use managed listener system
 		return createManagedDocumentListener(
@@ -124,13 +104,17 @@ export function listenToEvaluation(
 
 					store.dispatch(setEvaluationToStore(evaluation));
 				} catch (error) {
-					console.error(error);
+					logError(error, { operation: 'evaluation.getEvaluation.listenToEvaluation' });
 				}
 			},
-			(error) => console.error('Error in evaluation listener:', error)
+			(error) =>
+				logError(error, {
+					operation: 'evaluation.getEvaluation.listenToEvaluation',
+					metadata: { message: 'Error in evaluation listener:' },
+				}),
 		);
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'evaluation.getEvaluation.listenToEvaluation' });
 
 		return () => {
 			return;
@@ -140,7 +124,7 @@ export function listenToEvaluation(
 
 export async function getEvaluations(parentId: string): Promise<Evaluation[]> {
 	try {
-		const evaluationsRef = collection(FireStore, Collections.evaluations);
+		const evaluationsRef = createCollectionRef(Collections.evaluations);
 		const q = query(evaluationsRef, where('parentId', '==', parentId));
 
 		const evaluationsDB = await getDocs(q);
@@ -162,11 +146,7 @@ export async function getEvaluations(parentId: string): Promise<Evaluation[]> {
 		const evaluatorsPromise = evaluations
 			.map((evaluation) => {
 				if (!evaluation.evaluator) {
-					const evaluatorRef = doc(
-						FireStore,
-						Collections.users,
-						evaluation.evaluatorId
-					);
+					const evaluatorRef = createDocRef(Collections.users, evaluation.evaluatorId);
 					const promise = getDoc(evaluatorRef);
 
 					return promise;
@@ -182,16 +162,14 @@ export async function getEvaluations(parentId: string): Promise<Evaluation[]> {
 		});
 
 		evaluations.forEach((evaluation) => {
-			const evaluator = evaluators.find(
-				(evaluator) => evaluator?.uid === evaluation.evaluatorId
-			);
+			const evaluator = evaluators.find((evaluator) => evaluator?.uid === evaluation.evaluatorId);
 
 			if (evaluator) evaluation.evaluator = evaluator;
 		});
 
 		return evaluations;
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'evaluation.getEvaluation.evaluator' });
 
 		return [] as Evaluation[];
 	}

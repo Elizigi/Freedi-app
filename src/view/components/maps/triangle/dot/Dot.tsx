@@ -1,7 +1,8 @@
 import { FC, useState, useRef } from 'react';
 import styles from './Dot.module.scss';
-import { Statement } from 'delib-npm';
+import { Statement } from '@freedi/shared-types';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
+import { logError } from '@/utils/errorHandling';
 
 interface Props {
 	subStatement: Statement;
@@ -10,11 +11,15 @@ interface Props {
 
 const Dot: FC<Props> = ({ subStatement, maxEvaluators }) => {
 	const { t } = useTranslation();
-	const randomX = useRef<number>((Math.random()) * 0.04);
-	const randomY = useRef<number>((Math.random()) * 0.04);
+	const randomX = useRef<number>(Math.random() * 0.04);
+	const randomY = useRef<number>(Math.random() * 0.04);
 	const [show, setShow] = useState(false);
-	const { sumCon, sumPro, numberOfEvaluators } = subStatement.evaluation!;
-	if (sumCon === undefined || sumPro === undefined) return null;
+
+	// Early return if evaluation data is missing
+	if (!subStatement.evaluation) return null;
+
+	const { sumCon, sumPro, numberOfEvaluators } = subStatement.evaluation;
+	if (sumCon === undefined || sumPro === undefined || numberOfEvaluators === undefined) return null;
 
 	const agreement = (sumPro - sumCon) / numberOfEvaluators;
 	const bottom = sumCon / maxEvaluators + randomX.current;
@@ -37,12 +42,8 @@ const Dot: FC<Props> = ({ subStatement, maxEvaluators }) => {
 			onMouseLeave={() => handleShowTooltip(false)}
 		>
 			{show && (
-				<div
-					className={`${styles.tooltip} ${left > 0.5 && styles['tooltip--left']}`}
-				>
-					<div className={styles['tooltip__title']}>
-						{subStatement.statement}
-					</div>
+				<div className={`${styles.tooltip} ${left > 0.5 && styles['tooltip--left']}`}>
+					<div className={styles['tooltip__title']}>{subStatement.statement}</div>
 					<div>
 						{t('Support')}: {sumPro}
 					</div>
@@ -72,24 +73,18 @@ const agreementColors = [
 	'--range-positive-100',
 ];
 
-function fromAgreementToColor(
-	agreement: number,
-	agreementColors: string[]
-): string | undefined {
+function fromAgreementToColor(agreement: number, agreementColors: string[]): string | undefined {
 	try {
-		if (agreement < -1 || agreement > 1) {
-			throw new Error('Agreement must be between -1 and 1');
-		}
+		// Clamp to [-1, 1] as defense against corrupted evaluation data
+		const clamped = Math.max(-1, Math.min(1, agreement));
 
-		const adjustAgreement = (agreement + 1) / 2;
+		const adjustAgreement = (clamped + 1) / 2;
 
-		const index = Math.floor(
-			adjustAgreement * agreementColors.length * 0.99
-		);
+		const index = Math.floor(adjustAgreement * agreementColors.length * 0.99);
 
 		return agreementColors[index];
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'dot.Dot.adjustAgreement' });
 
 		return undefined;
 	}

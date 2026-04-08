@@ -1,5 +1,4 @@
 import React from 'react';
-import { createSelector } from '@reduxjs/toolkit';
 import { useDispatch } from 'react-redux';
 
 // Components
@@ -17,7 +16,7 @@ import { useStatementListeners } from './hooks/useStatementListeners';
 import { useNotificationSetup } from './hooks/useNotificationSetup';
 import { useDocumentTitle } from './hooks/useDocumentTitle';
 import { useComponentState } from './hooks/useComponentState';
-import { useStatementViewTracking } from '@/hooks/useStatementViewTracking';
+import { useStatementViewTracking } from '@/controllers/hooks/useStatementViewTracking';
 import { analyticsService } from '@/services/analytics';
 import { updateLastReadTimestamp } from '@/controllers/db/subscriptions/setSubscriptions';
 import { useAppSelector } from '@/controllers/hooks/reduxHooks';
@@ -31,16 +30,13 @@ import { StatementErrorBoundary } from './components/StatementErrorBoundary';
 import { COMPONENT_STATES } from './constants';
 import { creatorSelector } from '@/redux/creator/creatorSlice';
 import { setShowNewStatementModal } from '@/redux/statements/newStatementSlice';
+import { createStatementsByParentSelector } from '@/redux/utils/selectorFactories';
 
 // Create selectors
-export const subStatementsSelector = createSelector(
+const selectSubStatementsByParent = createStatementsByParentSelector(
 	(state: RootState) => state.statements.statements,
-	(_state: RootState, statementId: string | undefined) => statementId,
-	(statements, statementId) =>
-		statements
-			.filter((st) => st.parentId === statementId)
-			.sort((a, b) => a.createdAt - b.createdAt)
 );
+export const subStatementsSelector = selectSubStatementsByParent;
 
 const StatementMain: React.FC = () => {
 	const dispatch = useDispatch();
@@ -80,7 +76,7 @@ const StatementMain: React.FC = () => {
 		isWaitingForApproval,
 		isStatementNotFound,
 		error,
-		role
+		role,
 	});
 
 	// Set up listeners
@@ -96,8 +92,8 @@ const StatementMain: React.FC = () => {
 	useNotificationSetup({ statement, setError });
 
 	// Set document title
-	useDocumentTitle({ statement, screen });
-	
+	useDocumentTitle({ statement });
+
 	// Track statement view and interaction time
 	const { elementRef } = useStatementViewTracking({
 		statementId: statementId || '',
@@ -105,7 +101,7 @@ const StatementMain: React.FC = () => {
 		minViewTime: 1000,
 	});
 	// TODO: Use markInteraction when user votes or comments
-	
+
 	// Get user from store
 	const user = useAppSelector(creatorSelector);
 

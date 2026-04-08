@@ -1,9 +1,10 @@
 import React, { FC, useState } from 'react';
-import { Statement, Role } from 'delib-npm';
-import { MemberReviewData } from '../MemberValidation';
+import { Statement, Role } from '@freedi/shared-types';
+import type { MemberReviewData } from '@/types/demographics';
 import styles from './BanConfirmationModal.module.scss';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
 import { canBanUser, getBanDisabledReason } from '@/helpers/roleHelpers';
+import { logError } from '@/utils/errorHandling';
 
 interface Props {
 	member: MemberReviewData;
@@ -37,7 +38,10 @@ const BanConfirmationModal: FC<Props> = ({ member, statement, onConfirm, onCance
 	const handleConfirm = () => {
 		// Final safety check before confirming
 		if (!userCanBeBanned) {
-			console.error('Attempted to ban protected user:', banDisabledReason);
+			logError(banDisabledReason, {
+				operation: 'banConfirmationModal.BanConfirmationModal.handleConfirm',
+				metadata: { message: 'Attempted to ban protected user:' },
+			});
 
 			return;
 		}
@@ -55,9 +59,7 @@ const BanConfirmationModal: FC<Props> = ({ member, statement, onConfirm, onCance
 				</h2>
 
 				{!userCanBeBanned ? (
-					<div className={styles.errorMessage}>
-						🚫 {banDisabledReason}
-					</div>
+					<div className={styles.errorMessage}>🚫 {banDisabledReason}</div>
 				) : (
 					<div className={styles.warningMessage}>
 						⚠️ {t('This action cannot be undone. Please review carefully before proceeding.')}
@@ -102,12 +104,14 @@ const BanConfirmationModal: FC<Props> = ({ member, statement, onConfirm, onCance
 						<span>{t('Remove all votes and evaluations from this member')}</span>
 					</label>
 					<small className={styles.note}>
-						{t('This will recalculate all voting results without this member\'s input')}
+						{t("This will recalculate all voting results without this member's input")}
 					</small>
 				</div>
 
 				<div className={styles.reasonSection}>
-					<label htmlFor="banReason">{t('Reason for removal')} ({t('optional')})</label>
+					<label htmlFor="banReason">
+						{t('Reason for removal')} ({t('optional')})
+					</label>
 					<textarea
 						id="banReason"
 						placeholder={t('e.g., Spam responses, Bot-like behavior, Duplicate account...')}
@@ -124,11 +128,9 @@ const BanConfirmationModal: FC<Props> = ({ member, statement, onConfirm, onCance
 							{member.responses.slice(0, 3).map((response, idx) => (
 								<div key={idx} className={styles.responsePreview}>
 									<strong>{response.question}:</strong>
-									<span>{
-										Array.isArray(response.answer)
-											? response.answer.join(', ')
-											: response.answer
-									}</span>
+									<span>
+										{Array.isArray(response.answer) ? response.answer.join(', ') : response.answer}
+									</span>
 								</div>
 							))}
 							{member.responses.length > 3 && (
@@ -141,17 +143,10 @@ const BanConfirmationModal: FC<Props> = ({ member, statement, onConfirm, onCance
 				)}
 
 				<div className={styles.actions}>
-					<button
-						className="btn btn--error"
-						onClick={handleConfirm}
-						disabled={!userCanBeBanned}
-					>
+					<button className="btn btn--error" onClick={handleConfirm} disabled={!userCanBeBanned}>
 						{banType === 'hard' ? t('Ban Member') : t('Remove Member')}
 					</button>
-					<button
-						className="btn btn--secondary"
-						onClick={onCancel}
-					>
+					<button className="btn btn--secondary" onClick={onCancel}>
 						{t('Cancel')}
 					</button>
 				</div>

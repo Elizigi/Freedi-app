@@ -1,6 +1,11 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import styles from './StatementErrorBoundary.module.scss';
-import { generateBugReportEmail, getUserFriendlyErrorMessage, formatErrorDetails } from '../../../../utils/errorBoundaryHelpers';
+import {
+	generateBugReportEmail,
+	getUserFriendlyErrorMessage,
+	formatErrorDetails,
+} from '../../../../utils/errorBoundaryHelpers';
+import { logError } from '@/utils/errorHandling';
 
 interface Props {
 	children: ReactNode;
@@ -20,7 +25,7 @@ export class StatementErrorBoundary extends Component<Props, State> {
 		super(props);
 		this.state = {
 			hasError: false,
-			showDetails: false
+			showDetails: false,
 		};
 	}
 
@@ -29,7 +34,10 @@ export class StatementErrorBoundary extends Component<Props, State> {
 	}
 
 	componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-		console.error('StatementErrorBoundary caught an error:', error, errorInfo);
+		logError(new Error('StatementErrorBoundary caught an error:'), {
+			operation: 'components.StatementErrorBoundary.unknown',
+			metadata: { detail: error, errorInfo },
+		});
 		this.setState({ errorInfo });
 		this.props.onError?.(error, errorInfo);
 	}
@@ -39,7 +47,7 @@ export class StatementErrorBoundary extends Component<Props, State> {
 			hasError: false,
 			error: undefined,
 			errorInfo: undefined,
-			showDetails: false
+			showDetails: false,
 		});
 	};
 
@@ -49,7 +57,7 @@ export class StatementErrorBoundary extends Component<Props, State> {
 				error: this.state.error,
 				errorInfo: this.state.errorInfo,
 				url: window.location.href,
-				isDevelopment: import.meta.env.DEV
+				isDevelopment: import.meta.env.DEV,
 			});
 			window.location.href = emailLink;
 		}
@@ -60,8 +68,8 @@ export class StatementErrorBoundary extends Component<Props, State> {
 	};
 
 	private toggleDetails = () => {
-		this.setState(prevState => ({
-			showDetails: !prevState.showDetails
+		this.setState((prevState) => ({
+			showDetails: !prevState.showDetails,
 		}));
 	};
 
@@ -76,11 +84,11 @@ export class StatementErrorBoundary extends Component<Props, State> {
 			const friendlyMessage = this.state.error
 				? getUserFriendlyErrorMessage(this.state.error)
 				: {
-					title: 'Something went wrong',
-					titleHebrew: 'משהו השתבש',
-					description: 'An error occurred in this section',
-					descriptionHebrew: 'אירעה שגיאה באזור זה'
-				};
+						title: 'Something went wrong',
+						titleHebrew: 'משהו השתבש',
+						description: 'An error occurred in this section',
+						descriptionHebrew: 'אירעה שגיאה באזור זה',
+					};
 
 			return (
 				<div className={styles.statementError}>
@@ -99,7 +107,7 @@ export class StatementErrorBoundary extends Component<Props, State> {
 										fill="none"
 										xmlns="http://www.w3.org/2000/svg"
 									>
-										<circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+										<circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" />
 										<path
 											d="M12 7V13M12 17H12.01"
 											stroke="currentColor"
@@ -112,22 +120,14 @@ export class StatementErrorBoundary extends Component<Props, State> {
 
 							{/* Bilingual title */}
 							<div className={styles.statementError__header}>
-								<h2 className={styles.statementError__titleHe}>
-									{friendlyMessage.titleHebrew}
-								</h2>
-								<h3 className={styles.statementError__titleEn}>
-									{friendlyMessage.title}
-								</h3>
+								<h2 className={styles.statementError__titleHe}>{friendlyMessage.titleHebrew}</h2>
+								<h3 className={styles.statementError__titleEn}>{friendlyMessage.title}</h3>
 							</div>
 
 							{/* Bilingual description */}
 							<div className={styles.statementError__description}>
-								<p className={styles.statementError__descHe}>
-									{friendlyMessage.descriptionHebrew}
-								</p>
-								<p className={styles.statementError__descEn}>
-									{friendlyMessage.description}
-								</p>
+								<p className={styles.statementError__descHe}>{friendlyMessage.descriptionHebrew}</p>
+								<p className={styles.statementError__descEn}>{friendlyMessage.description}</p>
 							</div>
 
 							{/* URL display */}
@@ -144,9 +144,7 @@ export class StatementErrorBoundary extends Component<Props, State> {
 										onClick={this.toggleDetails}
 										aria-expanded={this.state.showDetails}
 									>
-										<span>
-											{this.state.showDetails ? 'Hide' : 'Show'} Technical Details
-										</span>
+										<span>{this.state.showDetails ? 'Hide' : 'Show'} Technical Details</span>
 										<svg
 											className={`${styles.statementError__detailsArrow} ${
 												this.state.showDetails ? styles['statementError__detailsArrow--open'] : ''

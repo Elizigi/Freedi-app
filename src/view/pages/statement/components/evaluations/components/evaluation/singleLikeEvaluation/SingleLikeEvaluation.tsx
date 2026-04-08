@@ -1,7 +1,10 @@
 import { FC, useEffect, useState } from 'react';
 import { useAppSelector } from '@/controllers/hooks/reduxHooks';
-import { evaluationSelector, userVotesInParentSelector } from '@/redux/evaluations/evaluationsSlice';
-import { Statement, User } from 'delib-npm';
+import {
+	evaluationSelector,
+	userVotesInParentSelector,
+} from '@/redux/evaluations/evaluationsSlice';
+import { Statement, User } from '@freedi/shared-types';
 import { setEvaluationToDB } from '@/controllers/db/evaluation/setEvaluation';
 import { auth } from '@/controllers/db/config';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
@@ -10,6 +13,8 @@ import LikeIcon from '@/assets/icons/likeIcon.svg?react';
 import EvaluationManagementModal from '@/view/components/evaluationManagement/EvaluationManagementModal';
 import Snackbar from '@/view/components/snackbar/Snackbar';
 import { Tooltip } from '@/view/components/tooltip/Tooltip';
+import { logError } from '@/utils/errorHandling';
+import { getPseudoName } from '@/utils/temporalNameGenerator';
 
 interface Props {
 	statement: Statement;
@@ -28,9 +33,11 @@ const SingleLikeEvaluation: FC<Props> = ({
 
 	// Get initial values from statement
 	// Use parent's total evaluators if available, otherwise fall back to statement's count
-	const _totalEvaluators = parentStatement?.evaluation?.asParentTotalEvaluators ||
-							parentStatement?.totalEvaluators ||
-							statement.evaluation?.numberOfEvaluators || 0;
+	const _totalEvaluators =
+		parentStatement?.evaluation?.asParentTotalEvaluators ||
+		parentStatement?.totalEvaluators ||
+		statement.evaluation?.numberOfEvaluators ||
+		0;
 	const _likesCount = statement.evaluation?.sumPro || statement.pro || 0;
 
 	const [likesCount, setLikesCount] = useState(_likesCount);
@@ -39,13 +46,9 @@ const SingleLikeEvaluation: FC<Props> = ({
 	const [showVoteModal, setShowVoteModal] = useState(false);
 	const [showSnackbar, setShowSnackbar] = useState(false);
 
-	const evaluation = useAppSelector(
-		evaluationSelector(statement.statementId)
-	);
+	const evaluation = useAppSelector(evaluationSelector(statement.statementId));
 
-	const userVoteCount = useAppSelector(
-		userVotesInParentSelector(parentStatement?.statementId)
-	);
+	const userVoteCount = useAppSelector(userVotesInParentSelector(parentStatement?.statementId));
 
 	const isLiked = evaluation === 1;
 	const maxVotes = parentStatement?.evaluationSettings?.maxVotesPerUser;
@@ -56,9 +59,11 @@ const SingleLikeEvaluation: FC<Props> = ({
 		// Update counts when statement or parent changes
 		const newLikesCount = statement.evaluation?.sumPro || statement.pro || 0;
 		// Use parent's total evaluators if available
-		const newTotalEvaluators = parentStatement?.evaluation?.asParentTotalEvaluators ||
-								parentStatement?.totalEvaluators ||
-								statement.evaluation?.numberOfEvaluators || 0;
+		const newTotalEvaluators =
+			parentStatement?.evaluation?.asParentTotalEvaluators ||
+			parentStatement?.totalEvaluators ||
+			statement.evaluation?.numberOfEvaluators ||
+			0;
 
 		setLikesCount(newLikesCount);
 		setTotalEvaluators(newTotalEvaluators);
@@ -67,7 +72,7 @@ const SingleLikeEvaluation: FC<Props> = ({
 		statement.evaluation?.numberOfEvaluators,
 		statement.pro,
 		parentStatement?.evaluation?.asParentTotalEvaluators,
-		parentStatement?.totalEvaluators
+		parentStatement?.totalEvaluators,
 	]);
 
 	const handleLikeToggle = async () => {
@@ -84,7 +89,7 @@ const SingleLikeEvaluation: FC<Props> = ({
 		}
 
 		const creator: User = {
-			displayName: user.displayName || 'Anonymous',
+			displayName: user.displayName || getPseudoName(user.uid),
 			email: user.email || '',
 			photoURL: user.photoURL || '',
 			uid: user.uid,
@@ -98,9 +103,9 @@ const SingleLikeEvaluation: FC<Props> = ({
 			// Optimistic update - only update likes, not total evaluators
 			// (total evaluators comes from parent and is managed by Firebase)
 			if (newEvaluation === 1) {
-				setLikesCount(prev => prev + 1);
+				setLikesCount((prev) => prev + 1);
 			} else {
-				setLikesCount(prev => Math.max(0, prev - 1));
+				setLikesCount((prev) => Math.max(0, prev - 1));
 			}
 
 			await setEvaluationToDB(statement, creator, newEvaluation);
@@ -110,12 +115,17 @@ const SingleLikeEvaluation: FC<Props> = ({
 				setShowSnackbar(true);
 			}
 		} catch (error) {
-			console.error('Error setting evaluation:', error);
+			logError(error, {
+				operation: 'singleLikeEvaluation.SingleLikeEvaluation.unknown',
+				metadata: { message: 'Error setting evaluation:' },
+			});
 			// Rollback on error
 			const rollbackLikes = statement.evaluation?.sumPro || statement.pro || 0;
-			const rollbackEvaluators = parentStatement?.evaluation?.asParentTotalEvaluators ||
-									parentStatement?.totalEvaluators ||
-									statement.evaluation?.numberOfEvaluators || 0;
+			const rollbackEvaluators =
+				parentStatement?.evaluation?.asParentTotalEvaluators ||
+				parentStatement?.totalEvaluators ||
+				statement.evaluation?.numberOfEvaluators ||
+				0;
 			setLikesCount(rollbackLikes);
 			setTotalEvaluators(rollbackEvaluators);
 		} finally {
@@ -123,15 +133,19 @@ const SingleLikeEvaluation: FC<Props> = ({
 		}
 	};
 
-	const likePercentage = totalEvaluators > 0
-		? Math.round((likesCount / totalEvaluators) * 100)
-		: 0;
+	const likePercentage = totalEvaluators > 0 ? Math.round((likesCount / totalEvaluators) * 100) : 0;
 
 	const likeButton = (
 		<button
 			className={`${styles.likeButton} ${isLiked ? styles.liked : ''} ${isProcessing ? styles.processing : ''} ${!enableEvaluation ? styles.disabled : ''}`}
 			onClick={enableEvaluation ? handleLikeToggle : undefined}
-			aria-label={enableEvaluation ? (isLiked ? 'Unlike this suggestion' : 'Like this suggestion') : t('Voting disabled - view only')}
+			aria-label={
+				enableEvaluation
+					? isLiked
+						? 'Unlike this suggestion'
+						: 'Like this suggestion'
+					: t('Voting disabled - view only')
+			}
 			aria-pressed={isLiked}
 			aria-disabled={!enableEvaluation}
 			disabled={isProcessing || !enableEvaluation}
@@ -143,10 +157,7 @@ const SingleLikeEvaluation: FC<Props> = ({
 	return (
 		<div className={styles.singleLikeEvaluation}>
 			{!enableEvaluation ? (
-				<Tooltip
-					content={t('Voting is currently disabled by the moderator')}
-					position='top'
-				>
+				<Tooltip content={t('Voting is currently disabled by the moderator')} position="top">
 					{likeButton}
 				</Tooltip>
 			) : (
@@ -158,11 +169,7 @@ const SingleLikeEvaluation: FC<Props> = ({
 					<span className={styles.count}>
 						{likesCount} {likesCount === 1 ? 'like' : 'likes'}
 					</span>
-					{totalEvaluators > 0 && (
-						<span className={styles.percentage}>
-							({likePercentage}%)
-						</span>
-					)}
+					{totalEvaluators > 0 && <span className={styles.percentage}>({likePercentage}%)</span>}
 				</div>
 			)}
 
@@ -196,7 +203,11 @@ const SingleLikeEvaluation: FC<Props> = ({
 			{hasVoteLimit && (
 				<Snackbar
 					message={`${userVoteCount}/${maxVotes} ${t('votes used')}`}
-					subMessage={isAtVoteLimit ? t("You've reached the maximum of") + ` ${maxVotes} ${t('votes')}` : undefined}
+					subMessage={
+						isAtVoteLimit
+							? t("You've reached the maximum of") + ` ${maxVotes} ${t('votes')}`
+							: undefined
+					}
 					isVisible={showSnackbar}
 					duration={5000}
 					onClose={() => setShowSnackbar(false)}

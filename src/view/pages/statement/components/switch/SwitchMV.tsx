@@ -1,29 +1,20 @@
 import { getStatementFromDB } from '@/controllers/db/statements/getStatement';
-import {
-	setStatement,
-	statementSelectorById,
-} from '@/redux/statements/statementsSlice';
+import { setStatement, statementSelectorById } from '@/redux/statements/statementsSlice';
 import { useContext, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useParams } from 'react-router';
 import { StatementContext } from '../../StatementCont';
-import { StatementType } from 'delib-npm';
+import { StatementType } from '@freedi/shared-types';
 
 export function useSwitchMV() {
 	const dispatch = useDispatch();
 	//get parent statement
 	const { statementId } = useParams();
 	const { statement } = useContext(StatementContext);
-	const parentStatement = useSelector(
-		statementSelectorById(statement?.parentId)
-	);
+	const parentStatement = useSelector(statementSelectorById(statement?.parentId));
 
 	useEffect(() => {
-		if (
-			!parentStatement &&
-			statementId &&
-			statement?.statementType === StatementType.question
-		) {
+		if (!parentStatement && statementId && statement?.statementType === StatementType.question) {
 			getStatementFromDB(statement?.parentId).then((statement) => {
 				if (statement) {
 					dispatch(setStatement(statement));

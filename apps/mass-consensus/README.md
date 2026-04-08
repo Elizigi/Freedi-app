@@ -1,6 +1,6 @@
-# Freedi Discussion - Fast Loading Module
+# WizCol Mass Consensus - understanding crowd solutions
 
-A high-performance Next.js application for crowdsourced solution discussions, optimized for speed and user experience.
+A high-performance WizCol application for crowdsourced solution discussions, optimized for speed and user experience.
 
 ## 🚀 Features
 
@@ -355,7 +355,7 @@ Uses same Firebase collections and data models as main app:
 
 - [Technical Plan](../../claude/partial-app-discussion-technical-plan.md)
 - [Design Document](../../docs/design-document.md)
-- [Freedi Architecture](../../docs/FREEDI_ARCHITECTURE.md)
+- [Freedi Architecture](../../docs/architecture/FREEDI_ARCHITECTURE.md)
 
 ## 🤝 Contributing
 

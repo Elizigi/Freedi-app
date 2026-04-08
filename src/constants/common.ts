@@ -69,6 +69,15 @@ export const VALIDATION = {
 } as const;
 
 /**
+ * Joining/Room constants
+ */
+export const JOINING = {
+	DEFAULT_MIN_MEMBERS: 3,
+	DEFAULT_MAX_MEMBERS: 10,
+	MIN_ROOM_SIZE: 2,
+} as const;
+
+/**
  * Cache constants
  */
 export const CACHE = {
@@ -112,6 +121,9 @@ export const STORAGE_KEYS = {
 	LAST_VISITED: 'lastVisited',
 	PWA_USER_RESPONDED: 'pwa-user-responded',
 	PWA_INSTALL_TRIGGER_DATA: 'pwa-install-trigger-data',
+	PWA_INSTALL_SOFT_PROMPT_DISMISSED_AT: 'pwa-install-soft-prompt-dismissed-at',
+	NOTIFICATION_SOFT_PROMPT_DISMISSED_AT: 'notification-soft-prompt-dismissed-at',
+	SHOW_HIDDEN_CARDS: 'freedi_showHiddenCards',
 } as const;
 
 /**
@@ -124,6 +136,30 @@ export const ROUTES = {
 	MY_SUGGESTIONS: '/my-suggestions',
 	PROFILE: '/my',
 	MASS_CONSENSUS: '/mass-consensus',
+} as const;
+
+/**
+ * Chat constants
+ */
+export const CHAT = {
+	INITIAL_MESSAGES_LIMIT: 30,
+	LOAD_MORE_BATCH_SIZE: 30,
+} as const;
+
+/**
+ * Redux state management constants
+ */
+export const REDUX = {
+	/** Maximum statements to keep in Redux store before pruning */
+	MAX_STATEMENTS: 500,
+} as const;
+
+/**
+ * Follow Me feature constants
+ */
+export const FOLLOW_ME = {
+	WRITE_DEBOUNCE_MS: 1000,
+	REDIRECT_DELAY_MS: 300,
 } as const;
 
 /**
@@ -155,7 +191,8 @@ export const PWA = {
  */
 export const PWA_MESSAGES = {
 	TITLE: 'Install FreeDi',
-	DESCRIPTION: 'Install FreeDi on your device for a better experience. Get quick access and work offline!',
+	DESCRIPTION:
+		'Install FreeDi on your device for a better experience. Get quick access and work offline!',
 	INSTALL_BUTTON: 'Install',
 	CANCEL_BUTTON: 'Not now',
 	SUCCESS: 'FreeDi installed successfully!',

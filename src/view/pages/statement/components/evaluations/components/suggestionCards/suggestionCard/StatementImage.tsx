@@ -1,5 +1,5 @@
 import React, { FC } from 'react';
-import { Statement } from 'delib-npm';
+import { Statement } from '@freedi/shared-types';
 import UploadImage from '@/view/components/uploadImage/UploadImage';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
 import styles from './StatementImage.module.scss';
@@ -27,14 +27,16 @@ const StatementImage: FC<Props> = ({
 
 	// Determine variant and container class based on display mode
 	const variant = displayMode === 'inline' ? 'inline' : 'compact';
-	const containerClass = displayMode === 'inline'
-		? `${styles.imageContainer} ${styles.inline}`
-		: `${styles.imageContainer} ${styles.above}`;
+	const containerClass =
+		displayMode === 'inline'
+			? `${styles.imageContainer} ${styles.inline}`
+			: `${styles.imageContainer} ${styles.above}`;
 
 	// Float direction for inline mode
-	const floatStyle = displayMode === 'inline'
-		? { float: (dir === 'ltr' ? 'left' : 'right') as 'left' | 'right' }
-		: {};
+	const floatStyle =
+		displayMode === 'inline'
+			? { float: (dir === 'ltr' ? 'left' : 'right') as 'left' | 'right' }
+			: {};
 
 	return (
 		<div className={containerClass} style={floatStyle}>
@@ -48,11 +50,7 @@ const StatementImage: FC<Props> = ({
 			/>
 			{isAdmin && (
 				<div className={styles.imageControls}>
-					<button
-						className={styles.imageRemoveBtn}
-						onClick={onRemove}
-						title={t('Remove Image')}
-					>
+					<button className={styles.imageRemoveBtn} onClick={onRemove} title={t('Remove Image')}>
 						✕
 					</button>
 				</div>

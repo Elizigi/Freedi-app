@@ -1,7 +1,7 @@
 import { StatementService } from '../statementService';
 import { db } from '../../../db';
 import * as arrayUtils from '../../../utils/arrayUtils';
-import { StatementType, Statement } from 'delib-npm';
+import { StatementType, Statement } from '@freedi/shared-types';
 
 // Mock Firebase Admin
 jest.mock('../../../db', () => ({
@@ -168,7 +168,7 @@ describe('StatementService', () => {
 			// Assert
 			expect(arrayUtils.getRandomSample).toHaveBeenCalledWith(
 				expect.any(Array),
-				2 // numberOfAnchoredStatements
+				2, // numberOfAnchoredStatements
 			);
 			expect(arrayUtils.shuffleArray).toHaveBeenCalled();
 			expect(result).toBeDefined();
@@ -218,19 +218,19 @@ describe('StatementService', () => {
 				expect.objectContaining({
 					'evaluation.viewed': 6,
 					'evaluation.evaluationRandomNumber': expect.any(Number),
-				})
+				}),
 			);
 			expect(mockBatch.update).toHaveBeenCalledWith(
 				mockDocRef,
 				expect.objectContaining({
 					'evaluation.viewed': 11,
-				})
+				}),
 			);
 			expect(mockBatch.update).toHaveBeenCalledWith(
 				mockDocRef,
 				expect.objectContaining({
 					'evaluation.viewed': 1,
-				})
+				}),
 			);
 			expect(mockBatch.commit).toHaveBeenCalled();
 		});
@@ -254,7 +254,7 @@ describe('StatementService', () => {
 			// Assert
 			expect(mockCollection.where).toHaveBeenCalledWith('parentId', '==', 'parent123');
 			expect(mockQuery.where).toHaveBeenCalledWith('statementType', '==', StatementType.option);
-			expect(mockQuery.orderBy).toHaveBeenCalledWith('consensus', 'desc');
+			expect(mockQuery.orderBy).toHaveBeenCalledWith('evaluation.averageEvaluation', 'desc');
 			expect(mockQuery.limit).toHaveBeenCalledWith(10);
 			expect(result).toHaveLength(2);
 			expect(result[0].consensus).toBe(0.9);

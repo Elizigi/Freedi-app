@@ -1,12 +1,8 @@
 import { createSlice } from '@reduxjs/toolkit';
 import type { PayloadAction } from '@reduxjs/toolkit';
-import { RootState } from '../types';
-import {
-	updateArray,
-	StatementMetaData,
-	StatementMetaDataSchema,
-} from 'delib-npm';
+import { updateArray, StatementMetaData, StatementMetaDataSchema } from '@freedi/shared-types';
 import { parse } from 'valibot';
+import { logError } from '@/utils/errorHandling';
 
 // Define a type for the slice state
 interface StatementMetaDataState {
@@ -18,39 +14,33 @@ const initialState: StatementMetaDataState = {
 	statementsMetaData: [],
 };
 
-export const statementMetaData = createSlice({
+export const statementsMetaSlice = createSlice({
 	name: 'statements-meta-data',
 	initialState,
 	reducers: {
-		setStatementMetaData: (
-			state,
-			action: PayloadAction<StatementMetaData>
-		) => {
+		setStatementMetaData: (state, action: PayloadAction<StatementMetaData>) => {
 			try {
-				const statementMetaData = parse(
-					StatementMetaDataSchema,
-					action.payload
-				);
+				const statementMetaData = parse(StatementMetaDataSchema, action.payload);
 
 				state.statementsMetaData = updateArray(
 					state.statementsMetaData,
 					statementMetaData,
-					'statementId'
+					'statementId',
 				);
 			} catch (error) {
-				console.error(error);
+				logError(error, { operation: 'redux.statements.statementsMetaSlice.unknown' });
 			}
 		},
 	},
 });
 
-export const { setStatementMetaData } = statementMetaData.actions;
+export const { setStatementMetaData } = statementsMetaSlice.actions;
 
-// Other code such as selectors can use the imported `RootState` type
+// Other code such as selectors can use the narrowly-typed state parameter
 export const statementMetaDataSelector =
-	(statementId: string) => (state: RootState) =>
+	(statementId: string) => (state: { statementMetaData: StatementMetaDataState }) =>
 		state.statementMetaData.statementsMetaData.find(
-			(statementMetaData) => statementMetaData.statementId === statementId
+			(statementMetaData) => statementMetaData.statementId === statementId,
 		);
 
-export default statementMetaData.reducer;
+export default statementsMetaSlice.reducer;

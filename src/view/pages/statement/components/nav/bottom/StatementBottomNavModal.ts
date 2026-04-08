@@ -1,4 +1,4 @@
-import { SortType } from 'delib-npm';
+import { SortType } from '@freedi/shared-types';
 
 export interface NavItem {
 	link: SortType;
@@ -15,6 +15,11 @@ export const sortItems: NavItem[] = [
 		link: SortType.mostUpdated,
 		name: 'Update',
 		id: SortType.mostUpdated,
+	},
+	{
+		link: SortType.mostJoined,
+		name: 'Joined',
+		id: SortType.mostJoined,
 	},
 	{
 		link: SortType.random,

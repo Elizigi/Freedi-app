@@ -1,5 +1,10 @@
-import { Statement } from 'delib-npm';
+'use client';
+
+import { Statement } from '@freedi/shared-types';
+import { useTranslation } from '@freedi/shared-i18n/next';
 import AIFeedbackButton from './AIFeedbackButton';
+import InlineMarkdown from '../shared/InlineMarkdown';
+import CommentsList from './CommentsList';
 import styles from './ResultsList.module.css';
 
 interface ResultsListProps {
@@ -19,14 +24,16 @@ export default function ResultsList({
   userId,
   questionId,
 }: ResultsListProps) {
+  const { t } = useTranslation();
+
   if (solutions.length === 0) {
     return (
       <div className={styles.empty}>
-        <h3>No solutions yet</h3>
+        <h3>{t('No solutions yet heading')}</h3>
         <p>
           {tab === 'mine'
-            ? "You haven't submitted any solutions yet."
-            : 'Be the first to submit a solution!'}
+            ? t("You haven't submitted any solutions yet.")
+            : t('Be the first to submit a solution!')}
         </p>
       </div>
     );
@@ -39,15 +46,20 @@ export default function ResultsList({
           <div key={solution.statementId} className={styles.item}>
             <div className={styles.rank}>#{index + 1}</div>
             <div className={styles.content}>
-              <p className={styles.text}>{solution.statement}</p>
+              <p className={styles.text}>
+                <InlineMarkdown text={solution.statement} />
+              </p>
               <div className={styles.meta}>
                 <span className={styles.consensus}>
-                  Score: {(solution.consensus || 0).toFixed(2)}
+                  {t('Score:')} {(solution.consensus || 0).toFixed(2)}
                 </span>
                 <span className={styles.date}>
                   {new Date(solution.createdAt).toLocaleDateString()}
                 </span>
               </div>
+
+              {/* Comments - auth check handled inside CommentsList */}
+              <CommentsList statementId={solution.statementId} />
             </div>
           </div>
         ))}

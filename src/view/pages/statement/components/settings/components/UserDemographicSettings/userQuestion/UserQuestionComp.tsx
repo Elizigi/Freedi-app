@@ -4,7 +4,12 @@ import DeleteIcon from '@/assets/icons/delete.svg?react';
 import PlusIcon from '@/assets/icons/plusIcon.svg?react';
 import Input from '@/view/components/input/Input';
 import styles from './UserQuestionComp.module.scss';
-import { DemographicOption, UserDemographicQuestion, UserDemographicQuestionType, DemographicQuestionScope } from 'delib-npm';
+import {
+	DemographicOption,
+	UserDemographicQuestion,
+	UserDemographicQuestionType,
+	DemographicQuestionScope,
+} from '@freedi/shared-types';
 import { setDemographicOptionColor } from '@/controllers/db/userDemographic/setUserDemographic';
 import { useDispatch } from 'react-redux';
 import { updateUserDemographicQuestionOptionColor } from '@/redux/userDemographic/userDemographicSlice';
@@ -14,7 +19,8 @@ import X from '@/assets/icons/x.svg?react';
 
 // Use string literals for scope since delib-npm exports DemographicQuestionScope as type-only
 const DEMOGRAPHIC_SCOPE_GROUP: DemographicQuestionScope = 'group' as DemographicQuestionScope;
-const DEMOGRAPHIC_SCOPE_STATEMENT: DemographicQuestionScope = 'statement' as DemographicQuestionScope;
+const DEMOGRAPHIC_SCOPE_STATEMENT: DemographicQuestionScope =
+	'statement' as DemographicQuestionScope;
 
 interface Props {
 	userQuestions: UserDemographicQuestion;
@@ -24,7 +30,7 @@ interface Props {
 	onDeleteQuestion: (questionIndex: number) => void;
 	onUpdateQuestion?: (
 		questionIndex: number,
-		updatedQuestion: Partial<UserDemographicQuestion>
+		updatedQuestion: Partial<UserDemographicQuestion>,
 	) => void;
 	minQuestionAmount?: number;
 	isTopParent?: boolean;
@@ -38,15 +44,14 @@ const UserQuestionComp = ({
 	onDeleteQuestion,
 	onUpdateQuestion,
 	minQuestionAmount = 2,
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	isTopParent = false,
 }: Props) => {
 	const { t } = useTranslation();
 	const dispatch = useDispatch();
 	const [newOptionText, setNewOptionText] = useState('');
 	const [isEditingQuestion, setIsEditingQuestion] = useState(false);
-	const [editedQuestionText, setEditedQuestionText] = useState(
-		userQuestions.question
-	);
+	const [editedQuestionText, setEditedQuestionText] = useState(userQuestions.question);
 	const [selectedType, setSelectedType] = useState(userQuestions.type);
 	const [addOptionMenuOpen, setAddOptionMenuOpen] = useState(false);
 
@@ -54,7 +59,8 @@ const UserQuestionComp = ({
 
 	const isMultiOptions =
 		userQuestions.type === UserDemographicQuestionType.checkbox ||
-		userQuestions.type === UserDemographicQuestionType.radio;
+		userQuestions.type === UserDemographicQuestionType.radio ||
+		userQuestions.type === UserDemographicQuestionType.dropdown;
 
 	const handleAddOption = () => {
 		if (newOptionText.trim()) {
@@ -96,17 +102,13 @@ const UserQuestionComp = ({
 			// If changing to/from multi-option types, handle options appropriately
 			const needsOptions =
 				newType === UserDemographicQuestionType.checkbox ||
-				newType === UserDemographicQuestionType.radio;
-			const currentHasOptions =
-				userQuestions.options && userQuestions.options.length > 0;
+				newType === UserDemographicQuestionType.radio ||
+				newType === UserDemographicQuestionType.dropdown;
+			const currentHasOptions = userQuestions.options && userQuestions.options.length > 0;
 
 			onUpdateQuestion(questionIndex, {
 				type: newType,
-				options: needsOptions
-					? currentHasOptions
-						? userQuestions.options
-						: []
-					: undefined,
+				options: needsOptions ? (currentHasOptions ? userQuestions.options : []) : undefined,
 			});
 		}
 	};
@@ -117,7 +119,7 @@ const UserQuestionComp = ({
 				userQuestionId: userQuestions.userQuestionId,
 				option: userQuestions.options[optionIndex].option,
 				color: color,
-			})
+			}),
 		);
 
 		setDemographicOptionColor(userQuestions, {
@@ -142,59 +144,42 @@ const UserQuestionComp = ({
 				{isEditingQuestion ? (
 					<div className={styles.editQuestionForm}>
 						<Input
-							name='editQuestion'
-							label=''
+							name="editQuestion"
+							label=""
 							placeholder={t('Enter question text')}
 							value={editedQuestionText}
 							onChange={(value) => setEditedQuestionText(value)}
 						/>
 						<div className={styles.editActions}>
 							<button
-								className='btn btn--primary btn--small'
+								className="btn btn--primary btn--small"
 								onClick={handleSaveQuestion}
 								disabled={!editedQuestionText.trim()}
 							>
 								{t('Save')}
 							</button>
-							<button
-								className='btn btn--secondary btn--small'
-								onClick={handleCancelEdit}
-							>
+							<button className="btn btn--secondary btn--small" onClick={handleCancelEdit}>
 								{t('Cancel')}
 							</button>
 						</div>
 					</div>
 				) : (
 					<>
-						<p
-							className={styles.questionTitle}
-							onClick={() => setIsEditingQuestion(true)}
-						>
+						<p className={styles.questionTitle} onClick={() => setIsEditingQuestion(true)}>
 							{userQuestions.question}
 						</p>
 						<div className={styles.questionActions}>
 							<div className={styles.typeSelector}>
 								<select
 									value={selectedType}
-									onChange={(e) =>
-										handleTypeChange(
-											e.target.value as UserDemographicQuestionType
-										)
-									}
+									onChange={(e) => handleTypeChange(e.target.value as UserDemographicQuestionType)}
 									className={styles.typeSelect}
 								>
-									<option value={UserDemographicQuestionType.text}>
-										{t('Text Input')}
-									</option>
-									<option value={UserDemographicQuestionType.textarea}>
-										{t('Text Area')}
-									</option>
-									<option value={UserDemographicQuestionType.radio}>
-										{t('Radio')}
-									</option>
-									<option value={UserDemographicQuestionType.checkbox}>
-										{t('Checkbox')}
-									</option>
+									<option value={UserDemographicQuestionType.text}>{t('Text Input')}</option>
+									<option value={UserDemographicQuestionType.textarea}>{t('Text Area')}</option>
+									<option value={UserDemographicQuestionType.radio}>{t('Radio')}</option>
+									<option value={UserDemographicQuestionType.checkbox}>{t('Checkbox')}</option>
+									<option value={UserDemographicQuestionType.dropdown}>{t('Dropdown')}</option>
 								</select>
 							</div>
 							{}
@@ -234,85 +219,78 @@ const UserQuestionComp = ({
 
 			{userQuestions.type === UserDemographicQuestionType.radio && (
 				<div>
-					{userQuestions.options?.map(
-						(option: DemographicOption, index: number) => (
-							<div key={index} className={styles.optionItem}>
-								<RadioButtonEmptyIcon />
-								{option.option}
-								<div className={styles.spacer}></div>
-								<input
-									type='color'
-									name={`user-question-${questionIndex}-${index}`}
-									value={option.color}
-									className={styles.optionColor}
-									onChange={(e) =>
-										handleChangeOptionColor(
-											index,
-											e.target.value
-										)
-									}
-									onBlur={(e) =>
-										handleChangeOptionColor(
-											index,
-											e.target.value
-										)
-									}
-								/>
-								<DeleteIcon
-									color={allowDelete ? 'red' : 'white'}
-									cursor={allowDelete ? 'pointer' : 'default'}
-									onClick={() =>
-										allowDelete
-											? handleDeleteOption(index)
-											: ''
-									}
-									title={t('Delete Option')}
-								/>
-							</div>
-						)
-					)}
+					{userQuestions.options?.map((option: DemographicOption, index: number) => (
+						<div key={index} className={styles.optionItem}>
+							<RadioButtonEmptyIcon />
+							{option.option}
+							<div className={styles.spacer}></div>
+							<input
+								type="color"
+								name={`user-question-${questionIndex}-${index}`}
+								value={option.color}
+								className={styles.optionColor}
+								onChange={(e) => handleChangeOptionColor(index, e.target.value)}
+								onBlur={(e) => handleChangeOptionColor(index, e.target.value)}
+							/>
+							<DeleteIcon
+								color={allowDelete ? 'red' : 'white'}
+								cursor={allowDelete ? 'pointer' : 'default'}
+								onClick={() => (allowDelete ? handleDeleteOption(index) : '')}
+								title={t('Delete Option')}
+							/>
+						</div>
+					))}
 				</div>
 			)}
 
 			{userQuestions.type === UserDemographicQuestionType.checkbox && (
 				<div>
-					{userQuestions.options?.map(
-						(option: DemographicOption, index: number) => (
-							<div key={index} className={styles.optionItem}>
-								<CheckboxEmptyIcon />
-								{option.option}
-								<div className={styles.spacer}></div>
-								<input
-									type='color'
-									name={`user-question-${questionIndex}-${index}`}
-									value={option.color}
-									className={styles.optionColor}
-									onChange={(e) =>
-										handleChangeOptionColor(
-											index,
-											e.target.value
-										)
-									}
-									onBlur={(e) =>
-										handleChangeOptionColor(
-											index,
-											e.target.value
-										)
-									}
-								/>
-								<DeleteIcon
-									color={allowDelete ? 'red' : 'white'}
-									cursor={allowDelete ? 'pointer' : 'default'}
-									onClick={() =>
-										allowDelete
-											? handleDeleteOption(index)
-											: ''
-									}
-									title={t('Delete Option')}
-								/>
-							</div>
-						)
-					)}
+					{userQuestions.options?.map((option: DemographicOption, index: number) => (
+						<div key={index} className={styles.optionItem}>
+							<CheckboxEmptyIcon />
+							{option.option}
+							<div className={styles.spacer}></div>
+							<input
+								type="color"
+								name={`user-question-${questionIndex}-${index}`}
+								value={option.color}
+								className={styles.optionColor}
+								onChange={(e) => handleChangeOptionColor(index, e.target.value)}
+								onBlur={(e) => handleChangeOptionColor(index, e.target.value)}
+							/>
+							<DeleteIcon
+								color={allowDelete ? 'red' : 'white'}
+								cursor={allowDelete ? 'pointer' : 'default'}
+								onClick={() => (allowDelete ? handleDeleteOption(index) : '')}
+								title={t('Delete Option')}
+							/>
+						</div>
+					))}
+				</div>
+			)}
+
+			{userQuestions.type === UserDemographicQuestionType.dropdown && (
+				<div>
+					{userQuestions.options?.map((option: DemographicOption, index: number) => (
+						<div key={index} className={styles.optionItem}>
+							{option.option}
+							<div className={styles.spacer}></div>
+							<input
+								type="color"
+								name={`user-question-${questionIndex}-${index}`}
+								value={option.color}
+								className={styles.optionColor}
+								onChange={(e) => handleChangeOptionColor(index, e.target.value)}
+								onBlur={(e) => handleChangeOptionColor(index, e.target.value)}
+							/>
+							<DeleteIcon
+								color={allowDelete ? 'red' : 'white'}
+								cursor={allowDelete ? 'pointer' : 'default'}
+								onClick={() => (allowDelete ? handleDeleteOption(index) : '')}
+								title={t('Delete Option')}
+							/>
+						</div>
+					))}
 				</div>
 			)}
 			{isMultiOptions && (
@@ -321,18 +299,16 @@ const UserQuestionComp = ({
 						<>
 							<div onKeyDown={handleKeyPress}>
 								<Input
-									name='newOption'
+									name="newOption"
 									label={t('New Option')}
 									placeholder={t('Enter new Answer')}
 									value={newOptionText}
-									onChange={(value) =>
-										setNewOptionText(value)
-									}
+									onChange={(value) => setNewOptionText(value)}
 								/>
 							</div>
-							<div className='btns'>
+							<div className="btns">
 								<button
-									className='btn btn--secondary btn--big'
+									className="btn btn--secondary btn--big"
 									onClick={handleAddOption}
 									disabled={!newOptionText.trim()}
 								>
@@ -340,7 +316,7 @@ const UserQuestionComp = ({
 									{t('Add')}
 								</button>
 								<button
-									className='btn btn--secondary btn--big'
+									className="btn btn--secondary btn--big"
 									onClick={() => setAddOptionMenuOpen(false)}
 								>
 									<X />
@@ -350,34 +326,48 @@ const UserQuestionComp = ({
 						</>
 					) : (
 						<div className={styles.addOptionPlus}>
-							<PlusIcon
-								onClick={() => setAddOptionMenuOpen(true)}
-								className={styles.plusIcon}
-							/>
+							<PlusIcon onClick={() => setAddOptionMenuOpen(true)} className={styles.plusIcon} />
 						</div>
 					)}
 				</div>
 			)}
 
-			{/* Scope Toggle - Only show for top parent */}
-			{isTopParent && (
-				<div className={styles.scopeToggle}>
-					<label className={styles.scopeLabel}>
+			{/* Allow Other toggle - only for radio/checkbox */}
+			{isMultiOptions && (
+				<div className={styles.allowOtherToggle}>
+					<label className={styles.allowOtherLabel}>
 						<input
-							type='checkbox'
-							checked={isGroupScope}
-							onChange={(e) => handleScopeToggle(e.target.checked)}
+							type="checkbox"
+							checked={userQuestions.allowOther ?? false}
+							onChange={(e) => {
+								if (onUpdateQuestion) {
+									onUpdateQuestion(questionIndex, {
+										allowOther: e.target.checked,
+									});
+								}
+							}}
 						/>
-						<span>{t('Apply to all sub-discussions')}</span>
+						<span>{t('Allow "Other" option')}</span>
 					</label>
-					<p className={styles.scopeHint}>
-						{isGroupScope
-							? t('Members will answer these questions once when joining the group')
-							: t('Members will answer these questions only for this discussion')
-						}
-					</p>
 				</div>
 			)}
+
+			{/* Scope Toggle - Show for all statements */}
+			<div className={styles.scopeToggle}>
+				<label className={styles.scopeLabel}>
+					<input
+						type="checkbox"
+						checked={isGroupScope}
+						onChange={(e) => handleScopeToggle(e.target.checked)}
+					/>
+					<span>{t('Apply to all sub-discussions')}</span>
+				</label>
+				<p className={styles.scopeHint}>
+					{isGroupScope
+						? t('Members will answer these questions once when joining the group')
+						: t('Members will answer these questions only for this discussion')}
+				</p>
+			</div>
 		</div>
 	);
 };

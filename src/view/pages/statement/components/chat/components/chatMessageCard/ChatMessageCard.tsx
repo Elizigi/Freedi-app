@@ -1,178 +1,253 @@
-import { FC, useEffect, useRef, useState } from "react";
-import StatementChatMore from "../statementChatMore/StatementChatMore";
-import UserAvatar from "../userAvatar/UserAvatar";
-import { isAuthorized } from "@/controllers/general/helpers";
-import { useAppSelector } from "@/controllers/hooks/reduxHooks";
-import { useTranslation } from "@/controllers/hooks/useTranslation";
-import useStatementColor from "@/controllers/hooks/useStatementColor";
-import { statementSubscriptionSelector } from "@/redux/statements/statementsSlice";
-import EditableStatement from "@/view/components/edit/EditableStatement";
-import CreateStatementModal from "@/view/pages/statement/components/createStatementModal/CreateStatementModal";
-import styles from "./ChatMessageCard.module.scss";
-import UploadImage from "@/view/components/uploadImage/UploadImage";
-import { StatementType, Statement } from "delib-npm";
-import { useAuthentication } from "@/controllers/hooks/useAuthentication";
-import ChatMessageMenu from "./ChatMessageMenu";
+import React, {
+	FC,
+	lazy,
+	Suspense,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from 'react';
+import StatementChatMore from '../statementChatMore/StatementChatMore';
+import UserAvatar from '../userAvatar/UserAvatar';
+import { isAuthorized } from '@/controllers/general/helpers';
+import { useAppSelector } from '@/controllers/hooks/reduxHooks';
+import { useTranslation } from '@/controllers/hooks/useTranslation';
+import useStatementColor from '@/controllers/hooks/useStatementColor';
+import { statementSubscriptionSelector } from '@/redux/statements/statementsSlice';
+import EditableStatement from '@/view/components/edit/EditableStatement';
+import styles from './ChatMessageCard.module.scss';
+import UploadImage from '@/view/components/uploadImage/UploadImage';
+import { StatementType, Statement } from '@freedi/shared-types';
+import { useAuthentication } from '@/controllers/hooks/useAuthentication';
+import ChatMessageMenu from './ChatMessageMenu';
+import TypeSuggestionBanner from './TypeSuggestionBanner';
+import { useStatementTypeDetection } from '@/controllers/hooks/useStatementTypeDetection';
+
+const CreateStatementModal = lazy(
+	() => import('@/view/pages/statement/components/createStatementModal/CreateStatementModal'),
+);
+
+function formatMessageTime(timestamp: number): string {
+	const date = new Date(timestamp);
+
+	return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
 export interface NewQuestion {
-  statement: Statement;
-  isOption: boolean;
-  showModal: boolean;
+	statement: Statement;
+	isOption: boolean;
+	showModal: boolean;
 }
 
 interface ChatMessageCardProps {
-  parentStatement: Statement | undefined;
-  statement: Statement;
-
-  previousStatement: Statement | undefined;
-  sideChat?: boolean;
+	parentStatement: Statement | undefined;
+	statement: Statement;
+	previousStatement: Statement | undefined;
+	sideChat?: boolean;
+	onReply?: (statement: Statement) => void;
 }
 
 const ChatMessageCard: FC<ChatMessageCardProps> = ({
-  parentStatement,
-  statement,
-  previousStatement,
-  sideChat = false,
+	parentStatement,
+	statement,
+	previousStatement,
+	sideChat = false,
+	onReply,
 }) => {
-  const imageUrl = statement.imagesURL?.main ?? "";
-  const [image, setImage] = useState<string>(imageUrl);
+	const imageUrl = statement.imagesURL?.main ?? '';
+	const [image, setImage] = useState<string>(imageUrl);
 
-  // Real-time listener for image changes
-  useEffect(() => {
-    if (statement?.imagesURL?.main !== undefined) {
-      setImage(statement.imagesURL.main);
-    }
-  }, [statement?.imagesURL?.main]);
+	// Real-time listener for image changes
+	useEffect(() => {
+		if (statement?.imagesURL?.main !== undefined) {
+			setImage(statement.imagesURL.main);
+		}
+	}, [statement?.imagesURL?.main]);
 
-  // Hooks
-  const { statementType } = statement;
-  const statementColor = useStatementColor({ statement });
-  const { dir } = useTranslation();
-  const { user } = useAuthentication();
+	// Hooks
+	const { statementType } = statement;
+	const statementColor = useStatementColor({ statement });
+	const { t, dir } = useTranslation();
+	const { user } = useAuthentication();
 
-  // Redux store
-  const statementSubscription = useAppSelector(
-    statementSubscriptionSelector(statement.parentId)
-  );
+	// Redux store
+	const statementSubscription = useAppSelector(statementSubscriptionSelector(statement.parentId));
 
-  // Use States
-  const [isEdit, setIsEdit] = useState(false);
-  const [isNewStatementModalOpen, setIsNewStatementModalOpen] = useState(false);
-  const [isCardMenuOpen, setIsCardMenuOpen] = useState(false);
+	// Use States
+	const [isEdit, setIsEdit] = useState(false);
+	const [isNewStatementModalOpen, setIsNewStatementModalOpen] = useState(false);
+	const [isCardMenuOpen, setIsCardMenuOpen] = useState(false);
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+	const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Variables
-  const _isAuthorized = isAuthorized(
-    statement,
-    statementSubscription,
-    parentStatement?.creator?.uid
-  );
-  const isMe = user?.uid === statement.creator?.uid;
-  const isStatement = statementType === StatementType.statement;
+	// Variables
+	const _isAuthorized = isAuthorized(
+		statement,
+		statementSubscription,
+		parentStatement?.creator?.uid,
+	);
+	const isMe = user?.uid === statement.creator?.uid;
+	const isStatement = statementType === StatementType.statement;
 
-  const isPreviousFromSameAuthor =
-    previousStatement?.creator?.uid === statement?.creator?.uid;
+	const isPreviousFromSameAuthor = previousStatement?.creator?.uid === statement?.creator?.uid;
 
-  const isAlignedLeft = (isMe && dir === "ltr") || (!isMe && dir === "rtl");
+	const isAlignedLeft = (isMe && dir === 'ltr') || (!isMe && dir === 'rtl');
 
-  // Handle save callback
-  function handleSaveSuccess() {
-    setIsEdit(false);
-  }
+	// Handle save callback
+	const handleSaveSuccess = useCallback(() => {
+		setIsEdit(false);
+	}, []);
 
-  const isGeneral =
-    statement.statementType === StatementType.statement ||
-    statement.statementType === undefined;
+	const handleEditEnd = useCallback(() => {
+		setIsEdit(false);
+	}, []);
 
-  const getMessageBoxClassName = () => {
-    const baseClass = styles.messageBox;
-    const marginClass = sideChat ? "" : styles.messageMargin;
-    if (isStatement) {
-      return `${baseClass} ${styles.messageBoxStatement} ${marginClass}`;
-    } else {
-      return `${baseClass} ${marginClass}`;
-    }
-  };
+	// AI type detection for the creator's own statements
+	const {
+		suggestedType,
+		isVisible: showTypeSuggestion,
+		dismiss: dismissTypeSuggestion,
+	} = useStatementTypeDetection(statement, isMe);
 
-  if (!statement) return null;
-  if (!parentStatement) return null;
+	const isGeneral =
+		statement.statementType === StatementType.statement || statement.statementType === undefined;
 
-  return (
-    <div
-      className={`${styles.chatMessageCard}  ${isAlignedLeft ? styles.alignedLeft : ""} ${styles[dir] || ""}`}
-    >
-      {!isPreviousFromSameAuthor && (
-        <div className={styles.user}>
-          <UserAvatar user={statement.creator} />
-          <span>{statement.creator.displayName}</span>
-        </div>
-      )}
+	const timeString = useMemo(() => formatMessageTime(statement.createdAt), [statement.createdAt]);
 
-      <div
-        className={getMessageBoxClassName()}
-        style={{
-          borderColor: isGeneral
-            ? "var(--inputBackground)"
-            : statementColor.backgroundColor,
-        }}
-      >
-        <div className={styles.triangle} />
+	const messageBoxClassName = useMemo(() => {
+		const baseClass = styles.messageBox;
+		const marginClass = sideChat ? '' : styles.messageMargin;
+		if (isStatement) {
+			return `${baseClass} ${styles.messageBoxStatement} ${marginClass}`;
+		} else {
+			return `${baseClass} ${marginClass}`;
+		}
+	}, [sideChat, isStatement]);
 
-        <div className={styles.info}>
-          <div className={styles.messageActions}>
-            <div className={styles.chatMenu}>
-              <ChatMessageMenu
-                statement={statement}
-                parentStatement={parentStatement}
-                isCardMenuOpen={isCardMenuOpen}
-                setIsCardMenuOpen={setIsCardMenuOpen}
-                isAuthorized={_isAuthorized}
-                setIsEdit={setIsEdit}
-                fileInputRef={fileInputRef}
-              />
-            </div>
-          </div>
-          <div className={styles.infoText}>
-            <EditableStatement
-              statement={statement}
-              multiline={true}
-              forceEditing={isEdit}
-              onSaveSuccess={handleSaveSuccess}
-              onEditEnd={() => setIsEdit(false)}
-              className={styles.editableMessage}
-              inputClassName={styles.editInput}
-              containerClassName={styles.editContainer}
-              saveButtonClassName={styles.editButtons}
-            />
-          </div>
-          <div className={styles.messageActions}>
+	const messageBoxStyle = useMemo(
+		() => (isGeneral ? undefined : { borderColor: statementColor.backgroundColor }),
+		[isGeneral, statementColor.backgroundColor],
+	);
 
-            <div className={styles.chatMoreElement}>
-              <StatementChatMore statement={statement} />
-            </div>
-          </div>
-        </div>
+	if (!statement) return null;
+	if (!parentStatement) return null;
 
-        <div style={{ display: image ? "flex" : "none" }}>
-          <UploadImage
-            statement={statement}
-            fileInputRef={fileInputRef}
-            image={image}
-            setImage={setImage}
-          />
-        </div>
+	return (
+		<div
+			id={statement.statementId}
+			className={`${styles.chatMessageCard}  ${isAlignedLeft ? styles.alignedLeft : ''} ${styles[dir] || ''}`}
+		>
+			{!isPreviousFromSameAuthor && (
+				<div className={styles.user}>
+					<UserAvatar user={statement.creator} />
+					<span>{statement.creator.displayName}</span>
+				</div>
+			)}
 
-        {isNewStatementModalOpen && (
-          <CreateStatementModal
-            parentStatement={statement}
-            isOption={false}
-            setShowModal={setIsNewStatementModalOpen}
-          />
-        )}
-      </div>
-    </div>
-  );
+			<div className={messageBoxClassName} style={messageBoxStyle}>
+				<div className={styles.triangle} />
+
+				{statement.replyTo && (
+					<button
+						className={styles.replyQuote}
+						onClick={() => {
+							const el = document.getElementById(statement.replyTo!.statementId);
+							if (el) {
+								el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+							}
+						}}
+						type="button"
+					>
+						<span className={styles.replyQuoteAuthor}>{statement.replyTo.creatorDisplayName}</span>
+						<span className={styles.replyQuoteText}>{statement.replyTo.statement}</span>
+					</button>
+				)}
+
+				<div className={styles.info}>
+					<div className={styles.messageActions}>
+						<div className={styles.chatMenu}>
+							<ChatMessageMenu
+								statement={statement}
+								parentStatement={parentStatement}
+								isCardMenuOpen={isCardMenuOpen}
+								setIsCardMenuOpen={setIsCardMenuOpen}
+								isAuthorized={_isAuthorized}
+								setIsEdit={setIsEdit}
+								fileInputRef={fileInputRef}
+							/>
+						</div>
+					</div>
+					<div className={styles.infoText}>
+						<EditableStatement
+							statement={statement}
+							multiline={true}
+							forceEditing={isEdit}
+							onSaveSuccess={handleSaveSuccess}
+							onEditEnd={handleEditEnd}
+							className={styles.editableMessage}
+							inputClassName={styles.editInput}
+							containerClassName={styles.editContainer}
+							saveButtonClassName={styles.editButtons}
+						/>
+						{statement.description && (
+							<div className={styles.description}>{statement.description}</div>
+						)}
+					</div>
+					<div className={styles.messageActions}>
+						<div className={styles.chatMoreElement}>
+							<StatementChatMore statement={statement} />
+						</div>
+					</div>
+				</div>
+
+				<div className={image ? styles.imageVisible : styles.imageHidden}>
+					<UploadImage
+						statement={statement}
+						fileInputRef={fileInputRef}
+						image={image}
+						setImage={setImage}
+					/>
+				</div>
+
+				<div className={styles.bottomRow}>
+					<span className={styles.timestamp}>{timeString}</span>
+					{onReply && (
+						<button
+							className={styles.replyBtn}
+							onClick={() => onReply(statement)}
+							aria-label={t('reply')}
+							type="button"
+						>
+							<span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+								reply
+							</span>
+							{t('reply')}
+						</button>
+					)}
+				</div>
+
+				{showTypeSuggestion && suggestedType && (
+					<TypeSuggestionBanner
+						statement={statement}
+						suggestedType={suggestedType}
+						isAuthorized={_isAuthorized}
+						onDismiss={dismissTypeSuggestion}
+					/>
+				)}
+
+				{isNewStatementModalOpen && (
+					<Suspense fallback={null}>
+						<CreateStatementModal
+							parentStatement={statement}
+							isOption={false}
+							setShowModal={setIsNewStatementModalOpen}
+						/>
+					</Suspense>
+				)}
+			</div>
+		</div>
+	);
 };
 
-export default ChatMessageCard;
+export default React.memo(ChatMessageCard);

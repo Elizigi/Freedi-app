@@ -1,6 +1,6 @@
 import { FC, useEffect, useState } from 'react';
 import { useSelector } from 'react-redux';
-import { Statement, RoomSettings, User } from 'delib-npm';
+import { Statement, User } from '@freedi/shared-types';
 import { useAppDispatch, useAppSelector } from '@/controllers/hooks/reduxHooks';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
 import SectionTitle from '../sectionTitle/SectionTitle';
@@ -37,9 +37,7 @@ const RoomAssignment: FC<RoomAssignmentProps> = ({ statement }) => {
 	const user = useAppSelector((state: RootState) => state.creator.creator) as User | null;
 
 	// Get room assignment data from Redux
-	const activeSettings = useSelector(
-		selectActiveSettingsByStatementId(statement.statementId)
-	);
+	const activeSettings = useSelector(selectActiveSettingsByStatementId(statement.statementId));
 	const settingsId = activeSettings?.settingsId || '';
 	const rooms = useSelector(selectRoomsBySettingsId(settingsId));
 	const participants = useSelector(selectParticipantsBySettingsId(settingsId));
@@ -48,10 +46,7 @@ const RoomAssignment: FC<RoomAssignmentProps> = ({ statement }) => {
 
 	// Listen to room settings for this statement
 	useEffect(() => {
-		const unsubscribeSettings = listenToRoomSettingsByStatement(
-			statement.statementId,
-			dispatch
-		);
+		const unsubscribeSettings = listenToRoomSettingsByStatement(statement.statementId, dispatch);
 
 		return () => {
 			unsubscribeSettings();
@@ -95,7 +90,7 @@ const RoomAssignment: FC<RoomAssignmentProps> = ({ statement }) => {
 
 	return (
 		<div className={styles.roomAssignment}>
-			<SectionTitle title={t('Room Assignment')} />
+			<SectionTitle title={t('Breakout Rooms')} />
 
 			<div className={styles.roomAssignment__content}>
 				{isLoading ? (

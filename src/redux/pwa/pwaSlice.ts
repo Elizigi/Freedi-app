@@ -1,5 +1,6 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 import { STORAGE_KEYS } from '@/constants/common';
+import { logError } from '@/utils/errorHandling';
 
 interface PWAState {
 	/** Number of options the user has created in this session */
@@ -12,6 +13,10 @@ interface PWAState {
 	lastPromptDismissedAt: number | null;
 	/** Whether the user has responded to the install prompt */
 	userResponded: boolean;
+	/** Per-discussion action counts for the current session (not persisted) */
+	discussionActions: Record<string, number>;
+	/** Discussion ID that crossed the notification prompt threshold (session-only) */
+	notificationPromptDiscussionId: string | null;
 }
 
 interface PWATriggerData {
@@ -29,8 +34,8 @@ const loadPWATriggerData = (): Partial<PWAState> => {
 		const stored = localStorage.getItem(STORAGE_KEYS.PWA_INSTALL_TRIGGER_DATA);
 		if (stored) {
 			const data: PWATriggerData = JSON.parse(stored);
-			
-return {
+
+			return {
 				optionsCreated: data.optionsCreated || 0,
 				hasCreatedGroup: data.hasCreatedGroup || false,
 				lastPromptDismissedAt: data.lastPromptDismissedAt || null,
@@ -38,10 +43,13 @@ return {
 			};
 		}
 	} catch (error) {
-		console.error('Failed to load PWA trigger data:', error);
+		logError(error, {
+			operation: 'redux.pwa.pwaSlice.loadPWATriggerData',
+			metadata: { message: 'Failed to load PWA trigger data:' },
+		});
 	}
-	
-return {};
+
+	return {};
 };
 
 /**
@@ -57,9 +65,15 @@ const savePWATriggerData = (state: PWAState): void => {
 		};
 		localStorage.setItem(STORAGE_KEYS.PWA_INSTALL_TRIGGER_DATA, JSON.stringify(data));
 	} catch (error) {
-		console.error('Failed to save PWA trigger data:', error);
+		logError(error, {
+			operation: 'redux.pwa.pwaSlice.savePWATriggerData',
+			metadata: { message: 'Failed to save PWA trigger data:' },
+		});
 	}
 };
+
+/** Minimum actions in a single discussion before showing the notification prompt */
+const MIN_DISCUSSION_ACTIONS_FOR_PROMPT = 3;
 
 const initialState: PWAState = {
 	optionsCreated: 0,
@@ -67,10 +81,12 @@ const initialState: PWAState = {
 	installPromptShown: false,
 	lastPromptDismissedAt: null,
 	userResponded: false,
+	discussionActions: {},
+	notificationPromptDiscussionId: null,
 	...loadPWATriggerData(),
 };
 
-const pwaSlice = createSlice({
+export const pwaSlice = createSlice({
 	name: 'pwa',
 	initialState,
 	reducers: {
@@ -115,6 +131,29 @@ const pwaSlice = createSlice({
 		},
 
 		/**
+		 * Track an action in a specific discussion.
+		 * When actions reach the threshold, sets notificationPromptDiscussionId
+		 * so the notification prompt can be shown.
+		 */
+		trackDiscussionAction: (state, action: PayloadAction<string>) => {
+			const discussionId = action.payload;
+			const current = state.discussionActions[discussionId] ?? 0;
+			const newCount = current + 1;
+			state.discussionActions[discussionId] = newCount;
+
+			if (newCount >= MIN_DISCUSSION_ACTIONS_FOR_PROMPT && !state.notificationPromptDiscussionId) {
+				state.notificationPromptDiscussionId = discussionId;
+			}
+		},
+
+		/**
+		 * Clear the notification prompt discussion trigger (after prompt is shown/dismissed)
+		 */
+		clearNotificationPromptTrigger: (state) => {
+			state.notificationPromptDiscussionId = null;
+		},
+
+		/**
 		 * Reset PWA tracking data
 		 */
 		resetPWATracking: (state) => {
@@ -123,6 +162,8 @@ const pwaSlice = createSlice({
 			state.installPromptShown = false;
 			state.lastPromptDismissedAt = null;
 			state.userResponded = false;
+			state.discussionActions = {};
+			state.notificationPromptDiscussionId = null;
 			savePWATriggerData(state);
 		},
 	},
@@ -134,15 +175,24 @@ export const {
 	setInstallPromptShown,
 	setPromptDismissed,
 	setUserAcceptedInstall,
+	trackDiscussionAction,
+	clearNotificationPromptTrigger,
 	resetPWATracking,
 } = pwaSlice.actions;
 
 // Selectors
 export const selectPWAState = (state: { pwa: PWAState }): PWAState => state.pwa;
 export const selectOptionsCreated = (state: { pwa: PWAState }): number => state.pwa.optionsCreated;
-export const selectHasCreatedGroup = (state: { pwa: PWAState }): boolean => state.pwa.hasCreatedGroup;
-export const selectInstallPromptShown = (state: { pwa: PWAState }): boolean => state.pwa.installPromptShown;
+export const selectHasCreatedGroup = (state: { pwa: PWAState }): boolean =>
+	state.pwa.hasCreatedGroup;
+export const selectInstallPromptShown = (state: { pwa: PWAState }): boolean =>
+	state.pwa.installPromptShown;
 export const selectUserResponded = (state: { pwa: PWAState }): boolean => state.pwa.userResponded;
-export const selectLastPromptDismissedAt = (state: { pwa: PWAState }): number | null => state.pwa.lastPromptDismissedAt;
-
-export default pwaSlice.reducer;
+export const selectLastPromptDismissedAt = (state: { pwa: PWAState }): number | null =>
+	state.pwa.lastPromptDismissedAt;
+export const selectNotificationPromptDiscussionId = (state: { pwa: PWAState }): string | null =>
+	state.pwa.notificationPromptDiscussionId;
+export const selectDiscussionActionCount = (
+	state: { pwa: PWAState },
+	discussionId: string,
+): number => state.pwa.discussionActions[discussionId] ?? 0;

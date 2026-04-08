@@ -1,5 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { getGeminiModel, geminiApiKey } from './config/gemini';
+import { getGeminiModel } from './config/gemini';
+import { functionConfig } from '@freedi/shared-types';
+import { logError } from './utils/errorHandling';
 
 interface SummarizeLinkRequest {
 	url: string;
@@ -70,12 +72,14 @@ function extractContent(html: string): string {
 /**
  * Fetch webpage and extract title and content
  */
-async function fetchWebpage(url: string): Promise<{ title: string; content: string; domain: string }> {
+async function fetchWebpage(
+	url: string,
+): Promise<{ title: string; content: string; domain: string }> {
 	try {
 		const response = await fetch(url, {
 			headers: {
-				'User-Agent': 'Mozilla/5.0 (compatible; Freedi/1.0; +https://freedi.tech)'
-			}
+				'User-Agent': 'Mozilla/5.0 (compatible; Freedi/1.0; +https://freedi.tech)',
+			},
 		});
 
 		if (!response.ok) {
@@ -96,7 +100,10 @@ async function fetchWebpage(url: string): Promise<{ title: string; content: stri
 
 		return { title, content, domain };
 	} catch (error) {
-		console.error('Error fetching webpage:', error);
+		logError(error, {
+			operation: 'popperHebbian.summarizeLink.fetchWebpage',
+			metadata: { url },
+		});
 		throw new HttpsError('internal', 'Failed to fetch webpage');
 	}
 }
@@ -106,19 +113,19 @@ async function fetchWebpage(url: string): Promise<{ title: string; content: stri
  */
 function getLanguageName(code: string): string {
 	const languages: Record<string, string> = {
-		'en': 'English',
-		'he': 'Hebrew',
-		'es': 'Spanish',
-		'ar': 'Arabic',
-		'fr': 'French',
-		'de': 'German',
-		'it': 'Italian',
-		'pt': 'Portuguese',
-		'ru': 'Russian',
-		'zh': 'Chinese',
-		'ja': 'Japanese',
-		'ko': 'Korean',
-		'nl': 'Dutch'
+		en: 'English',
+		he: 'Hebrew',
+		es: 'Spanish',
+		ar: 'Arabic',
+		fr: 'French',
+		de: 'German',
+		it: 'Italian',
+		pt: 'Portuguese',
+		ru: 'Russian',
+		zh: 'Chinese',
+		ja: 'Japanese',
+		ko: 'Korean',
+		nl: 'Dutch',
 	};
 
 	return languages[code] || 'English';
@@ -127,7 +134,11 @@ function getLanguageName(code: string): string {
 /**
  * Use AI to summarize webpage content in the user's language
  */
-async function summarizeContent(title: string, content: string, language: string = 'en'): Promise<string> {
+async function summarizeContent(
+	title: string,
+	content: string,
+	language: string = 'en',
+): Promise<string> {
 	try {
 		const model = getGeminiModel();
 		const languageName = getLanguageName(language);
@@ -147,7 +158,7 @@ Provide a clear, objective summary in ${languageName}:`;
 
 		return summary;
 	} catch (error) {
-		console.error('Error summarizing content:', error);
+		logError(error, { operation: 'popperHebbian.summarizeLink.summarizeContent' });
 		// Return a basic fallback if AI fails
 
 		return `Article from this webpage. Click to read more.`;
@@ -159,7 +170,7 @@ Provide a clear, objective summary in ${languageName}:`;
  */
 export const summarizeLink = onCall<SummarizeLinkRequest>(
 	{
-		secrets: [geminiApiKey]
+		region: functionConfig.region,
 	},
 	async (request): Promise<SummarizeLinkResponse> => {
 		// Require authentication
@@ -189,17 +200,26 @@ export const summarizeLink = onCall<SummarizeLinkRequest>(
 
 			// 2. Summarize with AI in user's language
 			const summary = await summarizeContent(title, content, language);
-			console.info('[summarizeLink] Summary generated in language:', language, 'Summary length:', summary.length);
+			console.info(
+				'[summarizeLink] Summary generated in language:',
+				language,
+				'Summary length:',
+				summary.length,
+			);
 
 			return {
 				url,
 				title,
 				summary,
-				domain
+				domain,
 			};
 		} catch (error) {
-			console.error('Error processing link:', error);
+			logError(error, {
+				operation: 'popperHebbian.summarizeLink',
+				userId: request.auth?.uid,
+				metadata: { url },
+			});
 			throw new HttpsError('internal', 'Failed to process link');
 		}
-	}
+	},
 );

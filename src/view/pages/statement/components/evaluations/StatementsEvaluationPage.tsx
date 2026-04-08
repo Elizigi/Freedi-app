@@ -12,9 +12,10 @@ import { useTranslation } from '@/controllers/hooks/useTranslation';
 import Button from '@/view/components/buttons/button/Button';
 import Modal from '@/view/components/modal/Modal';
 import Toast from '@/view/components/toast/Toast';
-import { QuestionStep, StatementType, Statement } from 'delib-npm';
+import { QuestionStep, StatementType, Statement } from '@freedi/shared-types';
 import { useEvaluationGuard } from '@/controllers/hooks/useEvaluationGuard';
 import AddSolutionPrompt from '@/view/components/evaluation/AddSolutionPrompt';
+import { logError } from '@/utils/errorHandling';
 
 interface StatementEvaluationPageProps {
 	statement: Statement;
@@ -42,7 +43,7 @@ const StatementEvaluationPage: FC<StatementEvaluationPageProps> = ({
 	const [showModal, setShowModal] = useState(false);
 	const [showToast, setShowToast] = useState(false);
 	const [showExplanation, setShowExplanation] = useState<boolean>(
-		currentStep === QuestionStep.explanation && isMultiStage && !questions
+		currentStep === QuestionStep.explanation && isMultiStage && !questions,
 	);
 	const [showSolutionPrompt, setShowSolutionPrompt] = useState(false);
 
@@ -63,11 +64,7 @@ const StatementEvaluationPage: FC<StatementEvaluationPageProps> = ({
 		if (!showToast && !questions) {
 			setShowToast(true);
 		}
-		if (
-			currentStep === QuestionStep.explanation &&
-			isMultiStage &&
-			!questions
-		) {
+		if (currentStep === QuestionStep.explanation && isMultiStage && !questions) {
 			setShowExplanation(true);
 		}
 		if (currentStep === QuestionStep.voting && !questions) {
@@ -80,12 +77,12 @@ const StatementEvaluationPage: FC<StatementEvaluationPageProps> = ({
 
 		return (
 			<>
-				<div className='page__main'>
+				<div className="page__main">
 					<div className={`wrapper ${styles.wrapper}`}>
 						{isMultiStage && message && (
 							<Toast
 								text={`${t(message)}${currentStep === QuestionStep.suggestion ? statement.statement : ''}`}
-								type='message'
+								type="message"
 								show={showToast}
 								setShow={setShowToast}
 							>
@@ -96,15 +93,12 @@ const StatementEvaluationPage: FC<StatementEvaluationPageProps> = ({
 						<SuggestionCards />
 					</div>
 				</div>
-				<div className='page__footer'>
+				<div className="page__footer">
 					<StatementBottomNav />
 				</div>
 				{showExplanation && (
 					<Modal>
-						<StatementInfo
-							statement={statement}
-							setShowInfo={setShowExplanation}
-						/>
+						<StatementInfo statement={statement} setShowInfo={setShowExplanation} />
 					</Modal>
 				)}
 				{showModal && (
@@ -166,13 +160,13 @@ const StatementEvaluationPage: FC<StatementEvaluationPageProps> = ({
 						);
 				}
 			} catch (error) {
-				console.error(error);
+				logError(error, { operation: 'evaluations.StatementsEvaluationPage.unknown' });
 
 				return null;
 			}
 		}
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'evaluations.StatementsEvaluationPage.unknown' });
 
 		return null;
 	}

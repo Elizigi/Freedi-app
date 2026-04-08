@@ -1,5 +1,6 @@
 import { Dispatch, SetStateAction, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { logError } from '@/utils/errorHandling';
 
 //styles
 
@@ -42,8 +43,7 @@ export default function PasswordUi({
 				setPasswordState({
 					img: passwordUiImgGreen,
 					text: t(`Bravo! Your password is correct. Welcome aboard!`),
-					textStyle:
-						styles.passwordUi__statusSection__passwordTextCorrect,
+					textStyle: styles.passwordUi__statusSection__passwordTextCorrect,
 				});
 
 				setTimeout(() => {
@@ -53,8 +53,7 @@ export default function PasswordUi({
 				setPasswordState({
 					img: passwordUiImgRed,
 					text: t(`Something went wrong. Please try again!`),
-					textStyle:
-						styles.passwordUi__statusSection__passwordTextIncorrect,
+					textStyle: styles.passwordUi__statusSection__passwordTextIncorrect,
 				});
 
 				setTriesCounter((prev) => {
@@ -67,13 +66,13 @@ export default function PasswordUi({
 				});
 			}
 		} catch (err) {
-			console.error(err);
+			logError(err, { operation: 'passwordUi.PasswordUi.unknown' });
 		}
 	}
 
 	return (
 		<div className={styles.passwordUi}>
-			<img alt='Person holding key' src={passwordState.img} />
+			<img alt="Person holding key" src={passwordState.img} />
 
 			<div className={styles.passwordUi__statusSection}>
 				<p className={passwordState.textStyle}>{passwordState.text}</p>
@@ -93,11 +92,7 @@ export default function PasswordUi({
 			</div>
 
 			<div className={styles.passwordUi__buttonSection}>
-				<Button
-					text={t('Submit')}
-					onClick={() => handleSubmit()}
-					className='btn btn--primary'
-				/>
+				<Button text={t('Submit')} onClick={() => handleSubmit()} className="btn btn--primary" />
 			</div>
 		</div>
 	);

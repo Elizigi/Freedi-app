@@ -9,13 +9,13 @@ import { ERROR_MESSAGES } from '@/constants/common';
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id: questionId } = await params;
+
   try {
     const body = await request.json();
     const { userInput, userId } = body;
-
-    const questionId = params.id;
 
     // Validate input
     if (!userInput || typeof userInput !== 'string') {
@@ -61,24 +61,50 @@ export async function POST(
       }),
     });
 
-    const data = await response.json();
+    // Parse response - handle non-JSON responses (e.g., gateway errors)
+    let data: Record<string, unknown>;
+    const contentType = response.headers.get('content-type') || '';
+
+    if (contentType.includes('application/json')) {
+      data = await response.json();
+    } else {
+      // Non-JSON response (gateway error, timeout, etc.)
+      const textResponse = await response.text();
+      logError(new Error('Non-JSON response from Cloud Function'), {
+        operation: 'api.checkSimilar',
+        userId,
+        questionId,
+        metadata: {
+          status: response.status,
+          contentType,
+          responsePreview: textResponse.substring(0, 100),
+        },
+      });
+
+      return NextResponse.json(
+        {
+          error: 'Service temporarily unavailable',
+          message: 'The similarity check service returned an unexpected response. Please try again.',
+        },
+        { status: 503 }
+      );
+    }
 
     // Pass through the response
     if (!response.ok) {
       return NextResponse.json(data, { status: response.status });
     }
 
-    return NextResponse.json(data);
+    // Ensure no caching of similarity results
+    return NextResponse.json(data, {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+      },
+    });
   } catch (error) {
-    const body = await request.json().catch(() => ({}));
-    const { userId } = body;
-    const questionId = params.id;
-
     logError(error, {
       operation: 'api.checkSimilar',
-      userId,
-      questionId,
-      metadata: { endpoint: process.env.CHECK_SIMILARITIES_ENDPOINT },
+      metadata: { questionId, endpoint: process.env.CHECK_SIMILARITIES_ENDPOINT },
     });
 
     return NextResponse.json(

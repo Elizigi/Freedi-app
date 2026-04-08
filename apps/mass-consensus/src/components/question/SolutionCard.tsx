@@ -1,14 +1,15 @@
 'use client';
 
-import { Statement } from 'delib-npm';
-import { useTranslation } from '@freedi/shared-i18n/next';
+import { Statement } from '@freedi/shared-types';
 import EvaluationButtons from './EvaluationButtons';
+import { getParagraphsText } from '@/lib/utils/paragraphUtils';
+import InlineMarkdown from '../shared/InlineMarkdown';
 import styles from './SolutionCard.module.css';
 
 interface SolutionCardProps {
   solution: Statement;
   onEvaluate: (solutionId: string, score: number) => void;
-  isEvaluated: boolean;
+  currentScore?: number | null;
 }
 
 /**
@@ -18,10 +19,8 @@ interface SolutionCardProps {
 export default function SolutionCard({
   solution,
   onEvaluate,
-  isEvaluated,
+  currentScore,
 }: SolutionCardProps) {
-  const { t } = useTranslation();
-
   const handleEvaluate = (score: number) => {
     onEvaluate(solution.statementId, score);
   };
@@ -29,30 +28,30 @@ export default function SolutionCard({
   // Use statement as title, description if available
   const title = solution.statement;
   // For solutions without description, use the statement itself
-  const description = solution.description || solution.statement;
+  const description = getParagraphsText(solution.paragraphs) || solution.statement;
 
   // Only show description if it's different from title (avoid duplication)
   const showDescription = description && description !== title;
 
+  const hasEvaluated = currentScore !== undefined && currentScore !== null;
+
   return (
-    <div className={`${styles.card} ${isEvaluated ? styles.evaluated : ''}`}>
+    <div className={`${styles.card} ${hasEvaluated ? styles.evaluated : ''}`}>
       <div className={styles.content}>
-        <h3 className={styles.title}>{title}</h3>
+        <h3 className={styles.title}>
+          <InlineMarkdown text={title} />
+        </h3>
         {showDescription && (
-          <p className={styles.description}>{description}</p>
+          <p className={styles.description}>
+            <InlineMarkdown text={description} />
+          </p>
         )}
       </div>
 
       <EvaluationButtons
         onEvaluate={handleEvaluate}
-        disabled={isEvaluated}
+        currentScore={currentScore}
       />
-
-      {isEvaluated && (
-        <div className={styles.evaluatedBadge}>
-          ✓ {t('Evaluated')}
-        </div>
-      )}
     </div>
   );
 }

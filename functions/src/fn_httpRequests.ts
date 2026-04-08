@@ -31,3 +31,15 @@ export const maintainSubscriptionToken = (req: Request, res: Response) =>
 
 export const updateAverageEvaluation = (req: Request, res: Response) =>
 	maintenanceController.updateAverageEvaluation(req, res);
+
+export const recalculateEvaluations = (req: Request, res: Response) =>
+	maintenanceController.recalculateEvaluations(req, res);
+
+export const addRandomSeed = (req: Request, res: Response) =>
+	maintenanceController.addRandomSeed(req, res);
+
+export const backfillEvaluationType = (req: Request, res: Response) =>
+	maintenanceController.backfillEvaluationType(req, res);
+
+export const backfillParentsArray = (req: Request, res: Response) =>
+	maintenanceController.backfillParentsArray(req, res);

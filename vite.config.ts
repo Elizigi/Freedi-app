@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import react from '@vitejs/plugin-react-swc';
 import svgr from 'vite-plugin-svgr';
 import path from 'path';
 import pkg from './package.json';
@@ -9,6 +9,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({ mode }) => {
 	const isTestMode = mode === 'testing';
 	const isTestMinified = mode === 'test-minified';
+	const isProdUnminified = mode === 'prod-unminified';
 
 	return {
 		envDir: './env',
@@ -81,8 +82,17 @@ export default defineConfig(({ mode }) => {
 		resolve: {
 			alias: {
 				'@': path.resolve(__dirname, './src'),
+				'@freedi/shared-types': path.resolve(__dirname, './packages/shared-types/src'),
 				'@freedi/shared-i18n': path.resolve(__dirname, './packages/shared-i18n/src'),
+				'@freedi/shared-utils': path.resolve(__dirname, './packages/shared-utils/src'),
 			},
+		},
+		optimizeDeps: {
+			include: [
+				'@tiptap/react',
+				'@tiptap/starter-kit',
+				'@tiptap/extension-placeholder',
+			],
 		},
 		define: {
 			'process.env.VITE_APP_VERSION': JSON.stringify(pkg.version),
@@ -96,15 +106,68 @@ export default defineConfig(({ mode }) => {
 				}, {} as Record<string, string>),
 		},
 		build: {
-			minify: !isTestMode || isTestMinified, // Minify in production and test-minified modes
-			sourcemap: isTestMode && !isTestMinified, // Only include sourcemaps on freedi-test.web.app (non-minified)
+			minify: (!isTestMode && !isProdUnminified) || isTestMinified, // Minify unless test mode or prod-unminified
+			sourcemap: (isTestMode && !isTestMinified) || isProdUnminified, // Sourcemaps for test (non-minified) and prod-unminified
 			cssCodeSplit: false, // Extract all CSS into a single file
 			rollupOptions: {
+				// Suppress warnings from third-party libraries
+				onwarn(warning, warn) {
+					// Ignore PURE annotation warnings from react-flip-toolkit
+					if (warning.code === 'INVALID_ANNOTATION' &&
+						warning.message?.includes('react-flip-toolkit')) {
+						return;
+					}
+					warn(warning);
+				},
 				output: {
-					manualChunks: {
-						'vendor-react': ['react', 'react-dom', 'react-router'],
-						// Removed statement manual chunking to allow better code splitting
-						styles: ['./src/view/style/style.scss'],
+					manualChunks: (id) => {
+						// React core libraries and essential React dependencies
+						// use-sync-external-store MUST be bundled with React to avoid initialization errors
+						if (id.includes('node_modules/react/') ||
+							id.includes('node_modules/react-dom/') ||
+							id.includes('node_modules/react-router') ||
+							id.includes('node_modules/use-sync-external-store') ||
+							id.includes('node_modules/scheduler')) {
+							return 'vendor-react';
+						}
+						// Firebase - large, only needed after auth
+						if (id.includes('node_modules/firebase/') ||
+							id.includes('node_modules/@firebase/')) {
+							return 'vendor-firebase';
+						}
+						// Redux - state management
+						if (id.includes('node_modules/@reduxjs/') ||
+							id.includes('node_modules/react-redux/') ||
+							id.includes('node_modules/redux')) {
+							return 'vendor-redux';
+						}
+						// ReactFlow - only used in MindMap
+						if (id.includes('node_modules/reactflow/') ||
+							id.includes('node_modules/@reactflow/') ||
+							id.includes('node_modules/dagre')) {
+							return 'vendor-reactflow';
+						}
+						// TipTap editor - only used in suggestions
+						if (id.includes('node_modules/@tiptap/') ||
+							id.includes('node_modules/prosemirror')) {
+							return 'vendor-editor';
+						}
+						// i18n - internationalization
+						if (id.includes('node_modules/i18next') ||
+							id.includes('node_modules/react-i18next')) {
+							return 'vendor-i18n';
+						}
+						// Sentry - error monitoring
+						if (id.includes('node_modules/@sentry/')) {
+							return 'vendor-sentry';
+						}
+						// Markdown renderer
+						if (id.includes('node_modules/react-markdown') ||
+							id.includes('node_modules/remark') ||
+							id.includes('node_modules/unified') ||
+							id.includes('node_modules/micromark')) {
+							return 'vendor-markdown';
+						}
 					},
 					assetFileNames: (assetInfo) => {
 						if (assetInfo.name?.endsWith('.css')) {

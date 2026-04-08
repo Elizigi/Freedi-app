@@ -1,4 +1,4 @@
-import { ChoseBy, updateArray } from 'delib-npm';
+import { ChoseBy, updateArray } from '@freedi/shared-types';
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 interface ChoseByState {
@@ -14,21 +14,14 @@ export const choseBySlice = createSlice({
 	initialState,
 	reducers: {
 		setChoseBy: (state, action: PayloadAction<ChoseBy>) => {
-			state.statements = updateArray(
-				state.statements,
-				action.payload,
-				'statementId'
-			);
+			state.statements = updateArray(state.statements, action.payload, 'statementId');
 		},
 	},
 });
 
 export const { setChoseBy } = choseBySlice.actions;
 
-export const choseBySelector =
-	(statementId: string) => (state: { choseBys: ChoseByState }) =>
-		state.choseBys.statements.find(
-			(choseBy) => choseBy.statementId === statementId
-		);
+export const choseBySelector = (statementId: string) => (state: { choseBys: ChoseByState }) =>
+	state.choseBys.statements.find((choseBy) => choseBy.statementId === statementId);
 
 export default choseBySlice.reducer;

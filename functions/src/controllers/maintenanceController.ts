@@ -53,7 +53,7 @@ export class MaintenanceController {
 			res.send({
 				ok: true,
 				size: result.total,
-				changed: result.updated
+				changed: result.updated,
 			});
 		} catch (error) {
 			this.handleError(res, error);
@@ -70,22 +70,158 @@ export class MaintenanceController {
 			if (!statementId) {
 				res.status(400).send({
 					error: 'statementId is required',
-					ok: false
+					ok: false,
 				});
 
 				return;
 			}
 
 			// Import the migration function
-			const { updateStatementAndChildrenAverageEvaluation } = await import('../migrations/updateStatementAverageEvaluation');
+			const { updateStatementAndChildrenAverageEvaluation } = await import(
+				'../migrations/updateStatementAverageEvaluation'
+			);
 
 			const result = await updateStatementAndChildrenAverageEvaluation(statementId);
 
 			res.send({
 				ok: true,
 				statementId,
-				...result
+				...result,
 			});
+		} catch (error) {
+			this.handleError(res, error);
+		}
+	}
+
+	/**
+	 * Recalculate all evaluation metrics for options under a parent statement
+	 * Recounts from actual evaluations in the database
+	 */
+	async recalculateEvaluations(req: Request, res: Response): Promise<void> {
+		try {
+			const parentId = req.query.parentId as string;
+
+			if (!parentId) {
+				res.status(400).send({
+					error: 'parentId is required',
+					ok: false,
+				});
+
+				return;
+			}
+
+			const { recalculateOptionsEvaluations } = await import(
+				'../migrations/recalculateEvaluations'
+			);
+			const result = await recalculateOptionsEvaluations(parentId);
+
+			res.send({
+				ok: true,
+				parentId,
+				...result,
+			});
+		} catch (error) {
+			this.handleError(res, error);
+		}
+	}
+
+	/**
+	 * Add randomSeed field to option statements for efficient random sampling
+	 * Query params:
+	 * - parentId (optional): Only update options under this parent
+	 * - stats (optional): If 'true', only return statistics without running migration
+	 */
+	async addRandomSeed(req: Request, res: Response): Promise<void> {
+		try {
+			const parentId = req.query.parentId as string | undefined;
+			const statsOnly = req.query.stats === 'true';
+
+			// Import the migration functions
+			const { migrateAddRandomSeed, getRandomSeedStats } = await import(
+				'../migrations/addRandomSeed'
+			);
+
+			if (statsOnly) {
+				const stats = await getRandomSeedStats();
+				res.send({
+					ok: true,
+					...stats,
+				});
+
+				return;
+			}
+
+			const result = await migrateAddRandomSeed(parentId);
+
+			res.send({
+				ok: true,
+				parentId: parentId || 'all',
+				...result,
+			});
+		} catch (error) {
+			this.handleError(res, error);
+		}
+	}
+
+	/**
+	 * Backfill evaluationType for Mass Consensus questions
+	 * Ensures MC questions display the correct evaluation component in the main app
+	 * Query params:
+	 * - stats (optional): If 'true', only return statistics without running migration
+	 */
+	async backfillEvaluationType(req: Request, res: Response): Promise<void> {
+		try {
+			const statsOnly = req.query.stats === 'true';
+
+			// Import the migration functions
+			const { migrateBackfillEvaluationType, getEvaluationTypeStats } = await import(
+				'../migrations/backfillEvaluationType'
+			);
+
+			if (statsOnly) {
+				const stats = await getEvaluationTypeStats();
+				res.send({
+					ok: true,
+					...stats,
+				});
+
+				return;
+			}
+
+			const result = await migrateBackfillEvaluationType();
+
+			res.send({
+				ok: true,
+				...result,
+			});
+		} catch (error) {
+			this.handleError(res, error);
+		}
+	}
+
+	/**
+	 * Backfill parents array for statements created in the last month
+	 * Fixes statements from apps (MC, Flow) that didn't populate the parents field
+	 * Query params:
+	 * - stats (optional): If 'true', only return statistics without running migration
+	 */
+	async backfillParentsArray(req: Request, res: Response): Promise<void> {
+		try {
+			const statsOnly = req.query.stats === 'true';
+
+			const { migrateBackfillParents, getParentsBackfillStats } = await import(
+				'../migrations/backfillParentsArray'
+			);
+
+			if (statsOnly) {
+				const stats = await getParentsBackfillStats();
+				res.send({ ok: true, ...stats });
+
+				return;
+			}
+
+			const result = await migrateBackfillParents();
+			res.send({ ok: true, ...result });
 		} catch (error) {
 			this.handleError(res, error);
 		}

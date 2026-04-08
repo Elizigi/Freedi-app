@@ -1,5 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { getGeminiModel, geminiApiKey } from './config/gemini';
+import { getGeminiModel } from './config/gemini';
+import { functionConfig } from '@freedi/shared-types';
+import { logError } from './utils/errorHandling';
 
 interface AnalyzeFalsifiabilityRequest {
 	ideaText: string;
@@ -21,17 +23,17 @@ interface AnalyzeFalsifiabilityResponse {
 }
 
 const LANGUAGE_NAMES: Record<string, string> = {
-	'he': 'Hebrew',
-	'ar': 'Arabic',
-	'en': 'English',
-	'es': 'Spanish',
-	'fr': 'French',
-	'de': 'German',
-	'nl': 'Dutch'
+	he: 'Hebrew',
+	ar: 'Arabic',
+	en: 'English',
+	es: 'Spanish',
+	fr: 'French',
+	de: 'German',
+	nl: 'Dutch',
 };
 
 export const analyzeFalsifiability = onCall<AnalyzeFalsifiabilityRequest>(
-	{ secrets: [geminiApiKey] },
+	{ region: functionConfig.region },
 	async (request): Promise<AnalyzeFalsifiabilityResponse> => {
 		const { ideaText, context, language = 'en' } = request.data;
 
@@ -40,9 +42,10 @@ export const analyzeFalsifiability = onCall<AnalyzeFalsifiabilityRequest>(
 		}
 
 		const languageName = LANGUAGE_NAMES[language] || 'English';
-		const languageInstruction = language !== 'en'
-			? `\n\nIMPORTANT: Your initial message to the user must be in ${languageName}. The JSON analysis can be in English, but all conversational text must be in ${languageName}.`
-			: '';
+		const languageInstruction =
+			language !== 'en'
+				? `\n\nIMPORTANT: Your initial message to the user must be in ${languageName}. The JSON analysis can be in English, but all conversational text must be in ${languageName}.`
+				: '';
 
 		const prompt = `You are the AI Guide for a collaborative thinking platform. Your job is to analyze ideas for testability and clarity.${languageInstruction}
 
@@ -71,14 +74,14 @@ Use simple, encouraging language.`;
 
 			// Configure generation settings
 			const generationConfig = {
-				temperature: 0.5,  // Balanced between creativity and consistency
-				responseMimeType: "application/json",  // Force JSON output
+				temperature: 0.5, // Balanced between creativity and consistency
+				responseMimeType: 'application/json', // Force JSON output
 			};
 
 			// Call Gemini API with strict configuration
 			const result = await model.generateContent({
-				contents: [{ role: "user", parts: [{ text: prompt }] }],
-				generationConfig
+				contents: [{ role: 'user', parts: [{ text: prompt }] }],
+				generationConfig,
 			});
 
 			const response = await result.response;
@@ -88,39 +91,50 @@ Use simple, encouraging language.`;
 			let analysis: FalsifiabilityAnalysis;
 			try {
 				const parsed = JSON.parse(text);
-			console.info('Parsed response:', JSON.stringify(parsed));
+				console.info('Parsed response:', JSON.stringify(parsed));
 
-			// Handle case where AI returns an array instead of a single object
-			if (Array.isArray(parsed)) {
-				// Find the object that has the analysis structure (with isTestable field)
-				const analysisObj = parsed.find((item: unknown) =>
-					item && typeof item === 'object' && 'isTestable' in item
-				);
-				if (!analysisObj) {
-					console.error('No valid analysis found in array:', parsed);
-					throw new Error('AI returned array without analysis object');
+				// Handle case where AI returns an array instead of a single object
+				if (Array.isArray(parsed)) {
+					// Find the object that has the analysis structure (with isTestable field)
+					const analysisObj = parsed.find(
+						(item: unknown) => item && typeof item === 'object' && 'isTestable' in item,
+					);
+					if (!analysisObj) {
+						logError(new Error('No valid analysis found in array'), {
+							operation: 'popperHebbian.analyzeFalsifiability',
+							metadata: { parsedLength: parsed.length },
+						});
+						throw new Error('AI returned array without analysis object');
+					}
+					analysis = analysisObj as FalsifiabilityAnalysis;
+				} else {
+					analysis = parsed;
 				}
-				analysis = analysisObj as FalsifiabilityAnalysis;
-			} else {
-				analysis = parsed;
-			}
 
-			console.info('Extracted analysis:', JSON.stringify(analysis));
+				console.info('Extracted analysis:', JSON.stringify(analysis));
 
-			// Validate the analysis structure
-			if (!analysis || typeof analysis !== 'object') {
-				console.error('Invalid analysis structure:', analysis);
-				throw new Error('AI returned invalid analysis structure');
-			}
+				// Validate the analysis structure
+				if (!analysis || typeof analysis !== 'object') {
+					logError(new Error('AI returned invalid analysis structure'), {
+						operation: 'popperHebbian.analyzeFalsifiability',
+						metadata: { analysisType: typeof analysis },
+					});
+					throw new Error('AI returned invalid analysis structure');
+				}
 
-			// Ensure vagueTerms is an array
-			if (!analysis.vagueTerms || !Array.isArray(analysis.vagueTerms)) {
-				console.error('Missing or invalid vagueTerms in analysis:', analysis);
-				analysis.vagueTerms = [];
-			}
+				// Ensure vagueTerms is an array
+				if (!analysis.vagueTerms || !Array.isArray(analysis.vagueTerms)) {
+					logError(new Error('Missing or invalid vagueTerms in analysis'), {
+						operation: 'popperHebbian.analyzeFalsifiability',
+						metadata: { hasVagueTerms: !!analysis.vagueTerms },
+					});
+					analysis.vagueTerms = [];
+				}
 			} catch (parseError) {
-				const errorMessage = parseError instanceof Error ? parseError.message : 'Unknown error';
-				console.error('Failed to parse JSON response:', text, errorMessage);
+				logError(parseError, {
+					operation: 'popperHebbian.analyzeFalsifiability.parseJSON',
+					metadata: { responseLength: text.length },
+				});
 				throw new Error('Invalid JSON response from AI');
 			}
 
@@ -145,12 +159,11 @@ Use simple, encouraging language.`;
 
 			return {
 				analysis,
-				initialMessage
+				initialMessage,
 			};
-
 		} catch (error) {
-			console.error('Error analyzing falsifiability:', error);
+			logError(error, { operation: 'popperHebbian.analyzeFalsifiability' });
 			throw new HttpsError('internal', 'Failed to analyze idea');
 		}
-	}
+	},
 );

@@ -1,4 +1,4 @@
-import { Creator } from 'delib-npm';
+import { Creator } from '@freedi/shared-types';
 import { createSlice, PayloadAction } from '@reduxjs/toolkit';
 
 interface CreatorState {
@@ -9,7 +9,7 @@ const initialState: CreatorState = {
 	creator: null,
 };
 
-const creatorSlice = createSlice({
+export const creatorSlice = createSlice({
 	name: 'creator',
 	initialState,
 	reducers: {
@@ -23,12 +23,10 @@ const creatorSlice = createSlice({
 		},
 		removeCreator: (state) => {
 			state.creator = null;
-		}
+		},
 	},
 });
 
 export const { setCreator, removeCreator, setUserAdvanceUser } = creatorSlice.actions;
 
 export const creatorSelector = (state: { creator: CreatorState }) => state.creator.creator;
-
-export default creatorSlice.reducer;

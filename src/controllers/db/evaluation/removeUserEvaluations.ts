@@ -1,6 +1,8 @@
-import { collection, doc, getDocs, query, where, writeBatch } from 'firebase/firestore';
+import { getDocs, query, where, writeBatch } from 'firebase/firestore';
 import { FireStore } from '../config';
-import { Collections, Evaluation } from 'delib-npm';
+import { Collections, Evaluation } from '@freedi/shared-types';
+import { createCollectionRef, createDocRef } from '@/utils/firebaseUtils';
+import { logError } from '@/utils/errorHandling';
 
 /**
  * Removes all evaluations and votes by a specific user for a statement and its options
@@ -11,7 +13,7 @@ import { Collections, Evaluation } from 'delib-npm';
  */
 export async function removeUserEvaluations(
 	statementId: string,
-	userId: string
+	userId: string,
 ): Promise<{ evaluationsRemoved: number; votesRemoved: number }> {
 	try {
 		if (!statementId || !userId) {
@@ -23,11 +25,11 @@ export async function removeUserEvaluations(
 
 		// 1. Remove evaluations for all child options of this statement
 		// Query evaluations where the user evaluated options under this parent
-		const evaluationsRef = collection(FireStore, Collections.evaluations);
+		const evaluationsRef = createCollectionRef(Collections.evaluations);
 		const evaluationsQuery = query(
 			evaluationsRef,
 			where('parentId', '==', statementId),
-			where('evaluatorId', '==', userId)
+			where('evaluatorId', '==', userId),
 		);
 
 		const evaluationsSnapshot = await getDocs(evaluationsQuery);
@@ -41,7 +43,7 @@ export async function removeUserEvaluations(
 				evaluationId: docSnapshot.id,
 				statementId: evaluation.statementId,
 				value: evaluation.evaluation,
-				userId
+				userId,
 			});
 
 			// Delete the evaluation document
@@ -54,7 +56,7 @@ export async function removeUserEvaluations(
 		// 2. Remove votes (for voting systems)
 		// The vote ID is constructed as {userId}--{parentId}
 		const voteId = `${userId}--${statementId}`;
-		const voteRef = doc(FireStore, Collections.votes, voteId);
+		const voteRef = createDocRef(Collections.votes, voteId);
 
 		// Check if vote exists and delete it
 		// Note: We can't check existence in a batch, so we'll try to delete
@@ -69,13 +71,15 @@ export async function removeUserEvaluations(
 			statementId,
 			userId,
 			evaluationsRemoved,
-			votesRemoved
+			votesRemoved,
 		});
 
 		return { evaluationsRemoved, votesRemoved };
-
 	} catch (error) {
-		console.error('Error removing user evaluations:', error);
+		logError(error, {
+			operation: 'evaluation.removeUserEvaluations.deleteEvaluation',
+			metadata: { message: 'Error removing user evaluations:' },
+		});
 		throw error;
 	}
 }
@@ -86,9 +90,7 @@ export async function removeUserEvaluations(
  * @param userId - The user ID whose evaluations should be removed globally
  * @returns Promise<number> - Number of evaluations removed
  */
-export async function removeAllUserEvaluations(
-	userId: string
-): Promise<number> {
+export async function removeAllUserEvaluations(userId: string): Promise<number> {
 	try {
 		if (!userId) {
 			throw new Error('User ID is required');
@@ -97,11 +99,8 @@ export async function removeAllUserEvaluations(
 		let evaluationsRemoved = 0;
 
 		// Query all evaluations by this user
-		const evaluationsRef = collection(FireStore, Collections.evaluations);
-		const evaluationsQuery = query(
-			evaluationsRef,
-			where('evaluatorId', '==', userId)
-		);
+		const evaluationsRef = createCollectionRef(Collections.evaluations);
+		const evaluationsQuery = query(evaluationsRef, where('evaluatorId', '==', userId));
 
 		const evaluationsSnapshot = await getDocs(evaluationsQuery);
 
@@ -114,11 +113,8 @@ export async function removeAllUserEvaluations(
 		});
 
 		// Also remove all votes by this user
-		const votesRef = collection(FireStore, Collections.votes);
-		const votesQuery = query(
-			votesRef,
-			where('userId', '==', userId)
-		);
+		const votesRef = createCollectionRef(Collections.votes);
+		const votesQuery = query(votesRef, where('userId', '==', userId));
 
 		const votesSnapshot = await getDocs(votesQuery);
 
@@ -132,13 +128,15 @@ export async function removeAllUserEvaluations(
 		console.info('Successfully removed all user evaluations:', {
 			userId,
 			evaluationsRemoved,
-			votesRemoved: votesSnapshot.size
+			votesRemoved: votesSnapshot.size,
 		});
 
 		return evaluationsRemoved;
-
 	} catch (error) {
-		console.error('Error removing all user evaluations:', error);
+		logError(error, {
+			operation: 'evaluation.removeUserEvaluations.unknown',
+			metadata: { message: 'Error removing all user evaluations:' },
+		});
 		throw error;
 	}
 }

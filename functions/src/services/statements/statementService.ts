@@ -1,10 +1,6 @@
 import { db } from '../../db';
 import { Query, CollectionReference } from 'firebase-admin/firestore';
-import {
-	Collections,
-	StatementType,
-	Statement,
-} from 'delib-npm';
+import { Collections, StatementType, Statement } from '@freedi/shared-types';
 import { shuffleArray, getRandomSample } from '../../utils/arrayUtils';
 
 export interface GetUserOptionsParams {
@@ -36,7 +32,9 @@ export class StatementService {
 
 		const userOptionsDB = await userOptionsRef.get();
 
-		return userOptionsDB.docs.map((doc) => doc.data() as Statement);
+		return userOptionsDB.docs
+			.map((doc) => doc.data() as Statement)
+			.filter((statement) => !statement.hide);
 	}
 
 	/**
@@ -52,7 +50,7 @@ export class StatementService {
 	 * at scale with millions of concurrent users while ensuring fairness and true randomness.
 	 *
 	 * ### Core Principles
-	 * 1. **Fairness**: Every statement gets exposure opportunity
+	 * 1. **Fairness**: Every statement gets exposure opportunity (Mean − SEM scoring ensures fair ranking)
 	 * 2. **Randomness**: Unpredictable selection patterns at scale
 	 * 3. **Performance**: Efficient database queries without fetching all documents
 	 *
@@ -150,8 +148,44 @@ export class StatementService {
 	 *
 	 * This design scales to millions of statements and users while maintaining
 	 * millisecond query response times.
+	 *
+	 * ### Timing Considerations & Natural Fairness
+	 *
+	 * **Selection Algorithm Recency Behavior**:
+	 * Statements added later start at tier 0 and receive priority exposure until
+	 * their view count catches up with older statements. This ensures new content
+	 * gets discovered.
+	 *
+	 * **Why This Is Fair - Mean − SEM Scoring**:
+	 * The final ranking uses Mean − SEM (Mean minus Standard Error of the Mean),
+	 * which naturally compensates for any exposure imbalance:
+	 *
+	 * | Statement | Evaluations (n) | Mean | SEM      | Score |
+	 * |-----------|-----------------|------|----------|-------|
+	 * | A (early) | 200             | 0.70 | 0.021    | 0.679 |
+	 * | B (late)  | 20              | 0.70 | 0.067    | 0.633 |
+	 *
+	 * Late additions receive a larger uncertainty penalty (higher SEM) until they
+	 * accumulate sufficient evaluations. This is statistically fair - we have less
+	 * confidence in their true community support.
+	 *
+	 * **Key Insight from Research**:
+	 * "The difference in reliability between n=10 and n=100 is not linear; it is dramatic."
+	 * The system self-corrects: exposure priority ≠ scoring advantage.
+	 *
+	 * **Real Requirement**:
+	 * Ensure all proposals receive sufficient evaluations (n ≥ 100) for reliable
+	 * scoring. The selection algorithm facilitates this; the scoring algorithm
+	 * ensures fairness regardless of timing.
+	 *
+	 * @see Mean − SEM Consensus Scoring Paper:
+	 * https://docs.google.com/document/d/1Ry2IwlntQY7LkPghZY9M1oR-H4Ufs8yDv_N1JgUTjKQ
 	 */
-	async getRandomStatements({ parentId, limit = 6, excludeIds = [] }: GetRandomStatementsParams): Promise<Statement[]> {
+	async getRandomStatements({
+		parentId,
+		limit = 6,
+		excludeIds = [],
+	}: GetRandomStatementsParams): Promise<Statement[]> {
 		// Validate and cap limit
 		const finalLimit = Math.min(limit, 50);
 
@@ -160,7 +194,12 @@ export class StatementService {
 		const parentStatement = parentDoc.data() as Statement | undefined;
 
 		if (parentStatement?.evaluationSettings?.anchored?.anchored) {
-			return this.getRandomStatementsWithAnchored(parentId, finalLimit, parentStatement, excludeIds);
+			return this.getRandomStatementsWithAnchored(
+				parentId,
+				finalLimit,
+				parentStatement,
+				excludeIds,
+			);
 		}
 
 		return this.getStandardRandomStatements(parentId, finalLimit, excludeIds);
@@ -173,17 +212,21 @@ export class StatementService {
 		parentId: string,
 		limit: number,
 		parentStatement: Statement,
-		excludeIds: string[] = []
+		excludeIds: string[] = [],
 	): Promise<Statement[]> {
-		const numberOfAnchoredStatements = parentStatement.evaluationSettings?.anchored?.numberOfAnchoredStatements || 3;
+		const numberOfAnchoredStatements =
+			parentStatement.evaluationSettings?.anchored?.numberOfAnchoredStatements || 3;
 		const allSolutionStatementsRef = db.collection(Collections.statements);
 
 		// Get anchored statements pool (excluding already viewed)
 		const anchoredPool = await this.getAnchoredStatements(parentId, allSolutionStatementsRef);
-		const filteredAnchoredPool = anchoredPool.filter(s => !excludeIds.includes(s.statementId));
+		const filteredAnchoredPool = anchoredPool.filter((s) => !excludeIds.includes(s.statementId));
 
 		// Randomly select N anchored statements
-		const selectedAnchored = getRandomSample(filteredAnchoredPool, Math.min(numberOfAnchoredStatements, filteredAnchoredPool.length));
+		const selectedAnchored = getRandomSample(
+			filteredAnchoredPool,
+			Math.min(numberOfAnchoredStatements, filteredAnchoredPool.length),
+		);
 
 		// Get non-anchored statements for remaining slots
 		const remainingSlots = Math.max(0, limit - selectedAnchored.length);
@@ -195,7 +238,7 @@ export class StatementService {
 				remainingSlots,
 				anchoredPool.length,
 				allSolutionStatementsRef,
-				excludeIds
+				excludeIds,
 			);
 			statements = [...selectedAnchored, ...nonAnchoredStatements];
 		} else {
@@ -211,7 +254,7 @@ export class StatementService {
 	 */
 	private async getAnchoredStatements(
 		parentId: string,
-		collectionRef: CollectionReference
+		collectionRef: CollectionReference,
 	): Promise<Statement[]> {
 		const anchoredQuery = collectionRef
 			.where('parentId', '==', parentId)
@@ -220,7 +263,9 @@ export class StatementService {
 
 		const anchoredDocs = await anchoredQuery.get();
 
-		return anchoredDocs.docs.map(doc => doc.data() as Statement);
+		return anchoredDocs.docs
+			.map((doc) => doc.data() as Statement)
+			.filter((statement) => !statement.hide);
 	}
 
 	/**
@@ -231,7 +276,7 @@ export class StatementService {
 		remainingSlots: number,
 		anchoredPoolSize: number,
 		collectionRef: CollectionReference,
-		excludeIds: string[] = []
+		excludeIds: string[] = [],
 	): Promise<Statement[]> {
 		// First try with explicit anchored field query
 		const nonAnchoredQuery: Query = collectionRef
@@ -244,8 +289,8 @@ export class StatementService {
 
 		const nonAnchoredDocs = await nonAnchoredQuery.get();
 		let randomStatements = nonAnchoredDocs.docs
-			.map(doc => doc.data() as Statement)
-			.filter(s => !excludeIds.includes(s.statementId));
+			.map((doc) => doc.data() as Statement)
+			.filter((s) => !s.hide && !excludeIds.includes(s.statementId));
 
 		// Fallback if not enough statements found
 		if (randomStatements.length < remainingSlots) {
@@ -255,7 +300,7 @@ export class StatementService {
 				anchoredPoolSize,
 				randomStatements.length,
 				collectionRef,
-				excludeIds
+				excludeIds,
 			);
 			randomStatements = [...randomStatements, ...additionalStatements];
 		}
@@ -272,7 +317,7 @@ export class StatementService {
 		anchoredPoolSize: number,
 		currentCount: number,
 		collectionRef: CollectionReference,
-		excludeIds: string[] = []
+		excludeIds: string[] = [],
 	): Promise<Statement[]> {
 		const allOptionsQuery: Query = collectionRef
 			.where('parentId', '==', parentId)
@@ -284,15 +329,24 @@ export class StatementService {
 		const allOptionsDocs = await allOptionsQuery.get();
 
 		return allOptionsDocs.docs
-			.map(doc => doc.data() as Statement)
-			.filter(statement => statement.anchored !== true && !excludeIds.includes(statement.statementId))
+			.map((doc) => doc.data() as Statement)
+			.filter(
+				(statement) =>
+					!statement.hide &&
+					statement.anchored !== true &&
+					!excludeIds.includes(statement.statementId),
+			)
 			.slice(0, remainingSlots - currentCount);
 	}
 
 	/**
 	 * Get standard random statements without anchored sampling
 	 */
-	private async getStandardRandomStatements(parentId: string, limit: number, excludeIds: string[] = []): Promise<Statement[]> {
+	private async getStandardRandomStatements(
+		parentId: string,
+		limit: number,
+		excludeIds: string[] = [],
+	): Promise<Statement[]> {
 		const allSolutionStatementsRef = db.collection(Collections.statements);
 
 		// Firestore 'not-in' queries are limited to 10 items
@@ -308,11 +362,13 @@ export class StatementService {
 
 		const randomStatementsDB = await q.get();
 
-		let statements = randomStatementsDB.docs.map((doc) => doc.data() as Statement);
+		let statements = randomStatementsDB.docs
+			.map((doc) => doc.data() as Statement)
+			.filter((s) => !s.hide);
 
 		// Filter out excluded IDs if any
 		if (excludeIds.length > 0) {
-			statements = statements.filter(s => !excludeIds.includes(s.statementId));
+			statements = statements.filter((s) => !excludeIds.includes(s.statementId));
 		}
 
 		// Return only the requested limit
@@ -353,6 +409,8 @@ export class StatementService {
 
 		const topSolutionsDB = await q.get();
 
-		return topSolutionsDB.docs.map((doc) => doc.data() as Statement);
+		return topSolutionsDB.docs
+			.map((doc) => doc.data() as Statement)
+			.filter((statement) => !statement.hide);
 	}
 }

@@ -5,9 +5,14 @@ export enum LanguagesEnum {
   de = 'de',
   es = 'es',
   nl = 'nl',
+  fa = 'fa',
 }
 
-export const DEFAULT_LANGUAGE = LanguagesEnum.he;
+export const DEFAULT_LANGUAGE = LanguagesEnum.en;
+
+export function isValidLanguage(lang: string): lang is LanguagesEnum {
+  return Object.values(LanguagesEnum).includes(lang as LanguagesEnum);
+}
 
 export const LANGUAGE_NAMES: Record<LanguagesEnum, string> = {
   [LanguagesEnum.en]: 'English',
@@ -16,6 +21,7 @@ export const LANGUAGE_NAMES: Record<LanguagesEnum, string> = {
   [LanguagesEnum.de]: 'Deutsch',
   [LanguagesEnum.es]: 'Español',
   [LanguagesEnum.nl]: 'Nederlands',
+  [LanguagesEnum.fa]: 'فارسی',
 };
 
 export const STORAGE_KEY = 'freedi-language';

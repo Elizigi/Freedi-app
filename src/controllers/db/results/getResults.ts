@@ -1,34 +1,32 @@
-import {
-	collection,
-	getDocs,
-	limit,
-	query,
-	where,
-	orderBy,
-	onSnapshot,
-} from 'firebase/firestore';
+import { collection, getDocs, limit, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import { FireStore } from '../config';
-import { Collections, StatementType, Statement, StatementSchema, ResultsBy } from 'delib-npm';
+import {
+	Collections,
+	StatementType,
+	Statement,
+	StatementSchema,
+	ResultsBy,
+} from '@freedi/shared-types';
 import { parse } from 'valibot';
-import { convertTimestampsToMillis } from '@/helpers/timestampHelpers';
+import { sortByConsensus } from '@/redux/utils/selectorFactories';
+import { normalizeStatementData } from '@/helpers/timestampHelpers';
 
 import { store } from '@/redux/store';
 import { deleteStatement, setStatement } from '@/redux/statements/statementsSlice';
+import { logError } from '@/utils/errorHandling';
 
 export async function getResultsDB(statement: Statement): Promise<Statement[]> {
 	try {
-
 		const { resultsSettings } = statement;
 		const resultsBy = resultsSettings?.resultsBy || ResultsBy.consensus;
 
 		if (resultsBy === ResultsBy.consensus) {
-
 			return await getTopOptionsDB(statement);
 		} else {
 			return [];
 		}
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'results.getResults.getResultsDB' });
 
 		return [];
 	}
@@ -39,82 +37,80 @@ async function getTopOptionsDB(statement: Statement): Promise<Statement[]> {
 		const { resultsSettings } = statement;
 		const numberOfOptions = resultsSettings?.numberOfResults || 1;
 
+		// Fetch all options under this parent (can't orderBy nested field in Firestore)
 		const topOptionsRef = collection(FireStore, Collections.statements);
-		const q = query(
-			topOptionsRef,
-			where('parentId', '==', statement.statementId),
-			orderBy('consensus', 'asc'),
-			limit(numberOfOptions)
-		);
+		const q = query(topOptionsRef, where('parentId', '==', statement.statementId));
 		const topOptionsSnap = await getDocs(q);
 
 		const topOptions = topOptionsSnap.docs.map((doc) => {
-			let data = doc.data();
-
-			// Convert Timestamp objects to milliseconds
-			data = convertTimestampsToMillis(data);
+			// Normalize statement data (converts timestamps and fills missing topParentId)
+			const data = normalizeStatementData(doc.data()) as Record<string, unknown>;
 
 			// Ensure averageEvaluation exists if evaluation is present
-			if (data.evaluation && !('averageEvaluation' in data.evaluation)) {
-				data.evaluation.averageEvaluation = data.evaluation.sumEvaluations / Math.max(data.evaluation.numberOfEvaluators, 1);
+			const evaluation = data.evaluation as Record<string, unknown> | undefined;
+			if (evaluation && !('averageEvaluation' in evaluation)) {
+				evaluation.averageEvaluation =
+					(evaluation.sumEvaluations as number) /
+					Math.max(evaluation.numberOfEvaluators as number, 1);
 			}
 
 			return parse(StatementSchema, data);
 		});
 
-		return topOptions;
+		// Sort by evaluation.agreement (falling back to consensus for legacy data)
+		// and return top N options
+		return topOptions.sort(sortByConsensus).slice(0, numberOfOptions);
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'results.getResults.topOptions' });
 
 		return [];
 	}
 }
 
 export function listenToDescendants(statementId: string) {
-
 	const dispatch = store.dispatch;
 	try {
 		const statementsRef = collection(FireStore, Collections.statements);
 		const q = query(
 			statementsRef,
 			where('parents', 'array-contains', statementId),
-			where("statementType", "!=", StatementType.statement),
-			orderBy("createdAt", "asc"),
-			limit(40)
+			where('statementType', '!=', StatementType.statement),
+			orderBy('createdAt', 'asc'),
+			limit(40),
 		);
 
 		return onSnapshot(q, (sts) => {
-			sts.docChanges().forEach(change => {
+			sts.docChanges().forEach((change) => {
 				try {
-					let data = change.doc.data();
-
-					// Convert Timestamp objects to milliseconds
-					data = convertTimestampsToMillis(data);
+					// Normalize statement data (converts timestamps and fills missing topParentId)
+					const data = normalizeStatementData(change.doc.data()) as Record<string, unknown>;
 
 					// Ensure averageEvaluation exists if evaluation is present
-					if (data.evaluation && !('averageEvaluation' in data.evaluation)) {
-						data.evaluation.averageEvaluation = data.evaluation.sumEvaluations / Math.max(data.evaluation.numberOfEvaluators, 1);
+					const evaluation = data.evaluation as Record<string, unknown> | undefined;
+					if (evaluation && !('averageEvaluation' in evaluation)) {
+						evaluation.averageEvaluation =
+							(evaluation.sumEvaluations as number) /
+							Math.max(evaluation.numberOfEvaluators as number, 1);
 					}
 					const statement = parse(StatementSchema, data);
 					if (change.type === 'added' || change.type === 'modified') {
-
 						dispatch(setStatement(statement));
 					} else if (change.type === 'removed') {
 						dispatch(deleteStatement(statement.statementId));
-
 					}
 				} catch (error) {
-					console.error('Error parsing statement:', error);
-					console.error('Statement data:', change.doc.data());
+					logError(error, {
+						operation: 'results.listenToDescendants.parseStatement',
+						metadata: { documentData: change.doc.data() },
+					});
 				}
 			});
-		}
-		);
-
+		});
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'results.getResults.unknown' });
 
-		return () => { return; }
-
+		return () => {
+			return;
+		};
 	}
 }

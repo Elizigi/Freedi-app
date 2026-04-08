@@ -1,7 +1,9 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { getFirestore } from 'firebase-admin/firestore';
-import { Statement, Collections } from 'delib-npm';
-import { getGeminiModel, geminiApiKey } from './config/gemini';
+import { Statement, Collections, functionConfig } from '@freedi/shared-types';
+import { getGeminiModel } from './config/gemini';
+import { getParagraphsText } from './helpers';
+import { logError } from './utils/errorHandling';
 
 interface ImproveProposalRequest {
 	statementId: string;
@@ -20,13 +22,13 @@ interface ImproveProposalResponse {
 }
 
 const LANGUAGE_NAMES: Record<string, string> = {
-	'he': 'Hebrew',
-	'ar': 'Arabic',
-	'en': 'English',
-	'es': 'Spanish',
-	'fr': 'French',
-	'de': 'German',
-	'nl': 'Dutch'
+	he: 'Hebrew',
+	ar: 'Arabic',
+	en: 'English',
+	es: 'Spanish',
+	fr: 'French',
+	de: 'German',
+	nl: 'Dutch',
 };
 
 /**
@@ -36,7 +38,7 @@ const LANGUAGE_NAMES: Record<string, string> = {
  * Only accessible by the proposal creator or group admins.
  */
 export const improveProposalWithAI = onCall<ImproveProposalRequest>(
-	{ secrets: [geminiApiKey] },
+	{ region: functionConfig.region },
 	async (request): Promise<ImproveProposalResponse> => {
 		const { statementId, language = 'en' } = request.data;
 		const userId = request.auth?.uid;
@@ -77,7 +79,7 @@ export const improveProposalWithAI = onCall<ImproveProposalRequest>(
 		if (!isCreator && !isAdmin) {
 			throw new HttpsError(
 				'permission-denied',
-				'Only the creator or admins can improve this proposal'
+				'Only the creator or admins can improve this proposal',
 			);
 		}
 
@@ -91,14 +93,14 @@ export const improveProposalWithAI = onCall<ImproveProposalRequest>(
 			.limit(50)
 			.get();
 
-		const comments = commentsSnapshot.docs.map(doc => doc.data() as Statement);
+		const comments = commentsSnapshot.docs.map((doc) => doc.data() as Statement);
 
 		// 4. Build synthesis prompt
 		const prompt = buildSynthesisPrompt(
 			statement.statement,
-			statement.description || '',
+			getParagraphsText(statement.paragraphs),
 			comments,
-			language
+			language,
 		);
 
 		// 5. Call Gemini
@@ -126,20 +128,36 @@ export const improveProposalWithAI = onCall<ImproveProposalRequest>(
 
 			try {
 				aiResponse = JSON.parse(text);
-			} catch {
-				console.error('Failed to parse AI response:', text);
+			} catch (parseError) {
+				logError(parseError, {
+					operation: 'popperHebbian.improveProposal.parseJSON',
+					statementId,
+					metadata: { responseLength: text.length },
+				});
 				throw new HttpsError('internal', 'Failed to parse AI response');
 			}
 
 			// Validate response structure
-			if (!aiResponse.improvedTitle || !aiResponse.improvedDescription || !aiResponse.improvementSummary) {
-				console.error('Invalid AI response structure:', aiResponse);
+			if (
+				!aiResponse.improvedTitle ||
+				!aiResponse.improvedDescription ||
+				!aiResponse.improvementSummary
+			) {
+				logError(new Error('Invalid AI response structure'), {
+					operation: 'popperHebbian.improveProposal',
+					statementId,
+					metadata: {
+						hasTitle: !!aiResponse.improvedTitle,
+						hasDescription: !!aiResponse.improvedDescription,
+						hasSummary: !!aiResponse.improvementSummary,
+					},
+				});
 				throw new HttpsError('internal', 'Invalid AI response structure');
 			}
 
 			return {
 				originalTitle: statement.statement,
-				originalDescription: statement.description || '',
+				originalDescription: getParagraphsText(statement.paragraphs),
 				improvedTitle: aiResponse.improvedTitle,
 				improvedDescription: aiResponse.improvedDescription,
 				improvementSummary: aiResponse.improvementSummary,
@@ -151,10 +169,14 @@ export const improveProposalWithAI = onCall<ImproveProposalRequest>(
 			if (error instanceof HttpsError) {
 				throw error;
 			}
-			console.error('Error generating improved proposal:', error);
+			logError(error, {
+				operation: 'popperHebbian.improveProposal',
+				statementId,
+				userId,
+			});
 			throw new HttpsError('internal', 'Failed to generate improved proposal');
 		}
-	}
+	},
 );
 
 /**
@@ -164,45 +186,50 @@ function buildSynthesisPrompt(
 	proposalTitle: string,
 	proposalDescription: string,
 	comments: Statement[],
-	language: string
+	language: string,
 ): string {
 	const languageName = LANGUAGE_NAMES[language] || 'English';
 
 	// Categorize comments by support level
 	const supporting = comments
-		.filter(c => (c.evidence?.support ?? 0) > 0.2)
-		.map(c => ({
+		.filter((c) => (c.evidence?.support ?? 0) > 0.2)
+		.map((c) => ({
 			text: c.statement,
 			support: c.evidence?.support ?? 0,
-			type: c.evidence?.evidenceType || 'argument'
+			type: c.evidence?.evidenceType || 'argument',
 		}));
 
 	const challenging = comments
-		.filter(c => (c.evidence?.support ?? 0) < -0.2)
-		.map(c => ({
+		.filter((c) => (c.evidence?.support ?? 0) < -0.2)
+		.map((c) => ({
 			text: c.statement,
 			support: c.evidence?.support ?? 0,
-			type: c.evidence?.evidenceType || 'argument'
+			type: c.evidence?.evidenceType || 'argument',
 		}));
 
 	const neutral = comments
-		.filter(c => Math.abs(c.evidence?.support ?? 0) <= 0.2)
-		.map(c => ({
+		.filter((c) => Math.abs(c.evidence?.support ?? 0) <= 0.2)
+		.map((c) => ({
 			text: c.statement,
-			type: c.evidence?.evidenceType || 'argument'
+			type: c.evidence?.evidenceType || 'argument',
 		}));
 
-	const supportingSection = supporting.length > 0
-		? supporting.map(s => `- ${s.text} (support: ${s.support.toFixed(1)}, type: ${s.type})`).join('\n')
-		: 'None';
+	const supportingSection =
+		supporting.length > 0
+			? supporting
+					.map((s) => `- ${s.text} (support: ${s.support.toFixed(1)}, type: ${s.type})`)
+					.join('\n')
+			: 'None';
 
-	const challengingSection = challenging.length > 0
-		? challenging.map(c => `- ${c.text} (challenge: ${Math.abs(c.support).toFixed(1)}, type: ${c.type})`).join('\n')
-		: 'None';
+	const challengingSection =
+		challenging.length > 0
+			? challenging
+					.map((c) => `- ${c.text} (challenge: ${Math.abs(c.support).toFixed(1)}, type: ${c.type})`)
+					.join('\n')
+			: 'None';
 
-	const neutralSection = neutral.length > 0
-		? neutral.map(n => `- ${n.text} (type: ${n.type})`).join('\n')
-		: 'None';
+	const neutralSection =
+		neutral.length > 0 ? neutral.map((n) => `- ${n.text} (type: ${n.type})`).join('\n') : 'None';
 
 	const descriptionSection = proposalDescription
 		? `\n## Original Description\n"${proposalDescription}"`
@@ -228,9 +255,9 @@ ${neutralSection}
 Create an improved version with a clear TITLE and detailed DESCRIPTION:
 
 **Title Guidelines:**
-- Should be concise (1-2 sentences max)
-- Capture the essence of the solution
-- Be clear and understandable at a glance
+- Do NOT truncate or shorten - preserve the full meaning
+- Capture the complete essence of the solution
+- Be clear and understandable
 
 **Description Guidelines:**
 - Provide detailed explanation of the proposal

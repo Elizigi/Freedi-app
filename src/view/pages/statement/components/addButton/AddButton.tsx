@@ -2,16 +2,18 @@ import React from 'react';
 import IconButton from '@/view/components/iconButton/IconButton';
 import PlusIcon from '@/assets/icons/plusIcon.svg?react';
 import AddQuestionIcon from '@/assets/icons/questionIcon.svg?react';
-import AddMassConsensusIcon from '@/assets/icons/massConsensusIcon.svg?react';
-import AddSubGroupIcon from '@/assets/icons/team-group.svg?react';
-import styles from './AddButton.module.scss'
-import { QuestionType, StatementType } from 'delib-npm';
+import CompoundIcon from '@/assets/icons/stepsIcon.svg?react';
+import styles from './AddButton.module.scss';
+import { StatementType, QuestionType, CompoundPhase } from '@freedi/shared-types';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
 import { useDispatch, useSelector } from 'react-redux';
-import { setNewStatementModal, setShowNewStatementModal } from '@/redux/statements/newStatementSlice';
+import {
+	setNewStatementModal,
+	setShowNewStatementModal,
+} from '@/redux/statements/newStatementSlice';
 import { useParams } from 'react-router';
 import { statementSelectorById } from '@/redux/statements/statementsSlice';
-import { getDefaultQuestionType } from '@/model/questionTypeDefaults';
+import { getDefaultQuestionType } from '@/models/questionTypeDefaults';
 
 export default function AddButton() {
 	const { statementId } = useParams<{ statementId: string }>();
@@ -22,51 +24,43 @@ export default function AddButton() {
 	const { dir } = useTranslation();
 	const radius = 5;
 
-	const handleAction = (
-		action: 'question' | 'mass-consensus' | 'subgroup'
-	) => {
+	const handleAction = (action: 'question' | 'compound') => {
 		setActionsOpen(false);
 		switch (action) {
 			case 'question':
-				dispatch(setNewStatementModal({
-					parentStatement: statement,
-					newStatement: {
-						statementType: StatementType.question,
-						questionSettings: {
-							questionType: getDefaultQuestionType(),
+				dispatch(
+					setNewStatementModal({
+						parentStatement: statement,
+						newStatement: {
+							statementType: StatementType.question,
+							questionSettings: {
+								questionType: getDefaultQuestionType(),
+							},
 						},
-					},
-					isLoading: false,
-					error: null,
-					showModal: true,
-				}));
-
+						isLoading: false,
+						error: null,
+						showModal: true,
+					}),
+				);
 				break;
-			case 'mass-consensus':
-				dispatch(setNewStatementModal({
-					parentStatement: statement,
-					newStatement: {
-						statementType: StatementType.question,
-						questionSettings: {
-							questionType: QuestionType.massConsensus,
+			case 'compound':
+				dispatch(
+					setNewStatementModal({
+						parentStatement: statement,
+						newStatement: {
+							statementType: StatementType.question,
+							questionSettings: {
+								questionType: QuestionType.compound,
+								compoundSettings: {
+									currentPhase: CompoundPhase.defineQuestion,
+								},
+							},
 						},
-					},
-					isLoading: false,
-					error: null,
-					showModal: true,
-				}));
-
-				break;
-			case 'subgroup':
-				dispatch(setNewStatementModal({
-					parentStatement: statement,
-					newStatement: {
-						statementType: StatementType.group,
-					},
-					isLoading: false,
-					error: null,
-					showModal: true,
-				}));
+						isLoading: false,
+						error: null,
+						showModal: true,
+					}),
+				);
 				break;
 			default:
 				break;
@@ -84,15 +78,10 @@ export default function AddButton() {
 			icon: <AddQuestionIcon />,
 		},
 		{
-			key: 'mass-consensus',
-			action: 'mass-consensus' as const,
-			icon: <AddMassConsensusIcon />,
+			key: 'compound',
+			action: 'compound' as const,
+			icon: <CompoundIcon />,
 		},
-		{
-			key: 'subgroup',
-			action: 'subgroup' as const,
-			icon: <AddSubGroupIcon />,
-		}
 	];
 
 	return (
@@ -112,17 +101,19 @@ export default function AddButton() {
 					<IconButton
 						key={key}
 						onClick={() => handleAction(action)}
-						className={`${styles.actionBtn} ${actionsOpen ? styles.visible : ""}`}
+						className={`${styles.actionBtn} ${actionsOpen ? styles.visible : ''}`}
 						title={`add ${action}`}
-						style={{
-							position: "absolute",
-							top: "-50%",
-							left: "-50%",
-							"--x": `${x}rem`,
-							"--y": `${y}rem`,
-							transitionDelay: `${index * 0.1}s`,
-							backgroundColor: `${action === 'subgroup' ? '#a879e0' : ''}`
-						} as React.CSSProperties}
+						style={
+							{
+								position: 'absolute',
+								top: '-50%',
+								left: '-50%',
+								'--x': `${x}rem`,
+								'--y': `${y}rem`,
+								transitionDelay: `${index * 0.1}s`,
+								backgroundColor: action === 'compound' ? '#47b4ef' : '',
+							} as React.CSSProperties
+						}
 					>
 						{icon}
 					</IconButton>
@@ -131,13 +122,15 @@ export default function AddButton() {
 			{actionsOpen && (
 				<button
 					className={`${styles.invisibleBackground}`}
-					onClick={() => dispatch(setShowNewStatementModal(false))} // Close the modal when clicking outside
+					onClick={() => dispatch(setShowNewStatementModal(false))}
 				></button>
-			)
-			}
-			<IconButton onClick={toggleActions} className={`${styles.plusButton} ${actionsOpen ? styles.active : ""}`}>
+			)}
+			<IconButton
+				onClick={toggleActions}
+				className={`${styles.plusButton} ${actionsOpen ? styles.active : ''}`}
+			>
 				<PlusIcon />
 			</IconButton>
-		</div >
+		</div>
 	);
 }

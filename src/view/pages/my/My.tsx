@@ -36,7 +36,7 @@ const My = () => {
 	}
 
 	return (
-		<div className='page'>
+		<div className="page">
 			<GeneralHeader />
 
 			<div className={styles.myContainer}>
@@ -47,13 +47,13 @@ const My = () => {
 				{/* Clickable image area */}
 				<img
 					src={selectedImage || user?.photoURL || profilePicPH}
-					alt='Profile'
+					alt="Profile"
 					className={styles.profilePicPH}
 					onClick={handleImageClick}
 				/>
 				<input
-					type='file'
-					accept='image/*'
+					type="file"
+					accept="image/*"
 					ref={fileInputRef}
 					style={{ display: 'none' }}
 					onChange={handleImageChange}
@@ -63,26 +63,30 @@ const My = () => {
 					<h3>Profile Setting</h3>
 
 					<RadioButtonWithLabel
-						id='simple-user'
+						id="simple-user"
+						name="userType"
 						labelText={t('Simple User')}
 						checked={!isAdvancedUser}
 						onChange={() => setUserAdvanceUserToDB(false)}
 					/>
 					<RadioButtonWithLabel
-						id='advanced-user'
+						id="advanced-user"
+						name="userType"
 						labelText={t('Advance User')}
 						checked={!!isAdvancedUser}
 						onChange={() => setUserAdvanceUserToDB(true)}
 					/>
-					<Button
-						className={styles.save}
-						text='save'
-						onClick={() => navigate('/')}
-					/>
+					<Button className={styles.save} text="save" onClick={() => navigate('/home')} />
 				</div>
-				
+
 				{/* Settings button using SCSS classes */}
 				<div className="btns" style={{ marginTop: '2rem' }}>
+					<Link to="/my/engagement" className="btn btn--seciondary">
+						{t('engagement.myImpact')}
+					</Link>
+					<Link to="/my/subscriptions" className="btn btn--seciondary">
+						{t('Subscriptions')}
+					</Link>
 					<Link to="/my/check-notifications" className="btn btn--seciondary">
 						{t('Check Notifications')}
 					</Link>

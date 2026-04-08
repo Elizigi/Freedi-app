@@ -1,99 +1,91 @@
 /**
- * Hook to handle public access for statements
- * Manages auto-authentication for public statements and redirects for other access levels
+ * Hook to handle access for statements
+ * Manages auto-authentication for unauthenticated users (anonymous auth)
+ * Users can login explicitly via profile icon if they want a permanent account
  */
 
 import { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router';
 import { useSelector } from 'react-redux';
-import { Access } from 'delib-npm';
+import { Access } from '@freedi/shared-types';
 import { getStatementFromDB } from '@/controllers/db/statements/getStatement';
 import { handlePublicAutoAuth } from '@/controllers/auth/publicAuthHandler';
 import { creatorSelector } from '@/redux/creator/creatorSlice';
-import { LocalStorageObjects } from '@/types/localStorage/LocalStorageObjects';
+import { logError } from '@/utils/errorHandling';
 
 interface UsePublicAccessResult {
-  isCheckingAccess: boolean;
-  effectiveAccess: Access | null;
+	isCheckingAccess: boolean;
+	effectiveAccess: Access | null;
 }
 
 export function usePublicAccess(statementId?: string): UsePublicAccessResult {
-  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
-  const [effectiveAccess, setEffectiveAccess] = useState<Access | null>(null);
-  const creator = useSelector(creatorSelector);
-  const navigate = useNavigate();
-  const location = useLocation();
+	const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+	const [effectiveAccess, setEffectiveAccess] = useState<Access | null>(null);
+	const creator = useSelector(creatorSelector);
 
-  useEffect(() => {
-    const checkPublicAccess = async () => {
-      // If no statementId, nothing to check
-      if (!statementId) {
-        setIsCheckingAccess(false);
-        
-        return;
-      }
+	useEffect(() => {
+		let isMounted = true;
 
-      // If user is already authenticated, no need to check
-      if (creator?.uid) {
-        setIsCheckingAccess(false);
-        
-        return;
-      }
+		const checkPublicAccess = async () => {
+			// If no statementId, nothing to check
+			if (!statementId) {
+				if (isMounted) setIsCheckingAccess(false);
 
-      try {
-        // Get the statement
-        const statement = await getStatementFromDB(statementId);
-        
-        if (!statement) {
-          setIsCheckingAccess(false);
-          
-          return;
-        }
+				return;
+			}
 
-        // Get the top parent statement if needed
-        let topParentStatement = null;
-        if (statement.topParentId && statement.topParentId !== statementId) {
-          topParentStatement = await getStatementFromDB(statement.topParentId);
-        }
+			// If user is already authenticated, no need to auto-auth
+			if (creator?.uid) {
+				if (isMounted) setIsCheckingAccess(false);
 
-        // Determine effective access - statement override or topParent
-        const access = statement?.membership?.access || topParentStatement?.membership?.access;
-        setEffectiveAccess(access || null);
+				return;
+			}
 
-        // Handle based on access level
-        if (access === Access.public) {
-          // Public access - auto-authenticate silently
-          console.info('Public statement detected, initiating auto-authentication');
-          await handlePublicAutoAuth();
-        } else if (access && !creator?.uid) {
-          // Non-public access without auth - save location and redirect to login
-          console.info(`${access} statement requires authentication, redirecting to login`);
-          
-          // Save the current location so user can return after login
-          const historyData = {
-            pathname: location.pathname,
-            search: location.search,
-            hash: location.hash
-          };
-          localStorage.setItem(
-            LocalStorageObjects.InitialRoute,
-            JSON.stringify(historyData)
-          );
-          
-          navigate('/start', { replace: true });
-        }
-      } catch (error) {
-        console.error('Error checking public access:', error);
-      } finally {
-        setIsCheckingAccess(false);
-      }
-    };
+			try {
+				// Auto-authenticate FIRST before fetching any data
+				// This ensures the user has a valid auth token for Firestore
+				console.info('User not authenticated, initiating auto-authentication');
+				await handlePublicAutoAuth();
+				if (!isMounted) return;
 
-    checkPublicAccess();
-  }, [statementId, creator?.uid, navigate, location]);
+				// Now fetch the statement with valid auth
+				const statement = await getStatementFromDB(statementId);
+				if (!isMounted) return;
 
-  return {
-    isCheckingAccess,
-    effectiveAccess
-  };
+				if (!statement) {
+					setIsCheckingAccess(false);
+
+					return;
+				}
+
+				// Get the top parent statement if needed
+				let topParentStatement = null;
+				if (statement.topParentId && statement.topParentId !== statementId) {
+					topParentStatement = await getStatementFromDB(statement.topParentId);
+					if (!isMounted) return;
+				}
+
+				// Determine effective access - statement override or topParent
+				const access = statement?.membership?.access || topParentStatement?.membership?.access;
+				setEffectiveAccess(access || null);
+			} catch (error) {
+				logError(error, {
+					operation: 'hooks.usePublicAccess.unknown',
+					metadata: { message: 'Error checking public access:' },
+				});
+			} finally {
+				if (isMounted) setIsCheckingAccess(false);
+			}
+		};
+
+		checkPublicAccess();
+
+		return () => {
+			isMounted = false;
+		};
+	}, [statementId, creator?.uid]);
+
+	return {
+		isCheckingAccess,
+		effectiveAccess,
+	};
 }

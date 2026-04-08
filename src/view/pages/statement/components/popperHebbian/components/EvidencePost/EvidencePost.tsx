@@ -1,12 +1,17 @@
 import React, { FC, useState, useEffect } from 'react';
-import { Statement } from 'delib-npm';
-import { EvidenceType } from 'delib-npm/dist/models/evidence/evidenceModel';
+import { Statement } from '@freedi/shared-types';
+import { EvidenceType } from '@freedi/shared-types';
 import { getCorroborationLabel, getCorroborationColor } from '../../popperHebbianHelpers';
-import { submitVote, removeVote, getUserVote } from '@/controllers/db/popperHebbian/evidenceController';
+import {
+	submitVote,
+	removeVote,
+	getUserVote,
+} from '@/controllers/db/popperHebbian/evidenceController';
 import { useAuthentication } from '@/controllers/hooks/useAuthentication';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
 import AddEvidenceModal from '../AddEvidenceModal/AddEvidenceModal';
 import styles from './EvidencePost.module.scss';
+import { logError } from '@/utils/errorHandling';
 
 interface LinkMetadata {
 	url: string;
@@ -19,7 +24,7 @@ interface EvidenceWithLink extends Statement {
 	evidence?: {
 		evidenceType?: EvidenceType;
 		support?: number;
-		corroborationScore?: number;  // NEW: 0-1 scale
+		corroborationScore?: number; // NEW: 0-1 scale
 		helpfulCount?: number;
 		notHelpfulCount?: number;
 		netScore?: number;
@@ -37,7 +42,9 @@ const EvidencePost: FC<EvidencePostProps> = ({ statement }) => {
 	const { t } = useTranslation();
 	const [userVote, setUserVote] = useState<'helpful' | 'not-helpful' | null>(null);
 	const [showEditModal, setShowEditModal] = useState(false);
-	const [previousEvidenceType, setPreviousEvidenceType] = useState<EvidenceType | undefined>(undefined);
+	const [previousEvidenceType, setPreviousEvidenceType] = useState<EvidenceType | undefined>(
+		undefined,
+	);
 
 	const evidence = statement.evidence;
 
@@ -47,8 +54,9 @@ const EvidencePost: FC<EvidencePostProps> = ({ statement }) => {
 
 	const { evidenceType, helpfulCount = 0, notHelpfulCount = 0 } = evidence;
 	// Use corroborationScore (0-1) if available, fallback to migrated support
-	const corroborationScore = (evidence as EvidenceWithLink['evidence'])?.corroborationScore
-		?? (evidence.support !== undefined ? (evidence.support + 1) / 2 : 0.5);
+	const corroborationScore =
+		(evidence as EvidenceWithLink['evidence'])?.corroborationScore ??
+		(evidence.support !== undefined ? (evidence.support + 1) / 2 : 0.5);
 	const netScore = helpfulCount - notHelpfulCount;
 	const corroborationColor = getCorroborationColor(corroborationScore);
 	const corroborationLabel = getCorroborationLabel(corroborationScore, t);
@@ -101,14 +109,17 @@ const EvidencePost: FC<EvidencePostProps> = ({ statement }) => {
 				setUserVote(voteType);
 			}
 		} catch (error) {
-			console.error('Error voting on evidence:', error);
+			logError(error, {
+				operation: 'EvidencePost.EvidencePost.handleVote',
+				metadata: { message: 'Error voting on evidence:' },
+			});
 		}
 	};
 
 	// Load user's existing vote
 	useEffect(() => {
 		if (user?.uid) {
-			getUserVote(statement.statementId, user.uid).then(vote => {
+			getUserVote(statement.statementId, user.uid).then((vote) => {
 				setUserVote(vote);
 			});
 		}
@@ -116,7 +127,11 @@ const EvidencePost: FC<EvidencePostProps> = ({ statement }) => {
 
 	// Track evidence type changes for notification
 	useEffect(() => {
-		if (evidence && previousEvidenceType !== undefined && previousEvidenceType !== evidence.evidenceType) {
+		if (
+			evidence &&
+			previousEvidenceType !== undefined &&
+			previousEvidenceType !== evidence.evidenceType
+		) {
 			// Evidence type changed after re-evaluation
 			// Show notification briefly then clear
 			const timer = setTimeout(() => {
@@ -132,8 +147,8 @@ const EvidencePost: FC<EvidencePostProps> = ({ statement }) => {
 	}, [evidence, previousEvidenceType]);
 
 	const isUserAuthor = user?.uid === statement.creatorId;
-	const showReevaluationNotice = previousEvidenceType !== undefined &&
-		previousEvidenceType !== evidence?.evidenceType;
+	const showReevaluationNotice =
+		previousEvidenceType !== undefined && previousEvidenceType !== evidence?.evidenceType;
 
 	// Parse markdown links and render properly
 	const renderContent = (text: string): React.ReactElement => {
@@ -161,7 +176,7 @@ const EvidencePost: FC<EvidencePostProps> = ({ statement }) => {
 					className={styles.evidenceLink}
 				>
 					{linkText}
-				</a>
+				</a>,
 			);
 
 			lastIndex = match.index + match[0].length;
@@ -180,10 +195,14 @@ const EvidencePost: FC<EvidencePostProps> = ({ statement }) => {
 			<div className={`${styles.evidencePost} ${styles[`evidencePost--${corroborationColor}`]}`}>
 				<div className={styles.evidenceHeader}>
 					<div className={styles.badges}>
-						<span className={`${styles.typeBadge} ${styles[`typeBadge--${getEvidenceTypeColor(evidenceType)}`]}`}>
+						<span
+							className={`${styles.typeBadge} ${styles[`typeBadge--${getEvidenceTypeColor(evidenceType)}`]}`}
+						>
 							{getEvidenceTypeLabel(evidenceType)}
 						</span>
-						<span className={`${styles.supportBadge} ${styles[`supportBadge--${corroborationColor}`]}`}>
+						<span
+							className={`${styles.supportBadge} ${styles[`supportBadge--${corroborationColor}`]}`}
+						>
 							{corroborationLabel}
 						</span>
 					</div>
@@ -203,62 +222,70 @@ const EvidencePost: FC<EvidencePostProps> = ({ statement }) => {
 					<div className={styles.reevaluationNotice}>
 						<span className={styles.noticeIcon}>🔄</span>
 						<span className={styles.noticeText}>
-							{t('AI re-evaluated: Changed from')} {getEvidenceTypeLabel(previousEvidenceType)} {t('to')} {getEvidenceTypeLabel(evidenceType)}
+							{t('AI re-evaluated: Changed from')} {getEvidenceTypeLabel(previousEvidenceType)}{' '}
+							{t('to')} {getEvidenceTypeLabel(evidenceType)}
 						</span>
 					</div>
 				)}
 
-			<div className={styles.evidenceContent}>
-				<p>{renderContent(statement.statement)}</p>
+				<div className={styles.evidenceContent}>
+					<p>{renderContent(statement.statement)}</p>
 
-				{/* Display link summary if available */}
-				{(statement as EvidenceWithLink).evidence?.linkMetadata && (
-					<div className={styles.linkSummary}>
-						<div className={styles.linkSummaryHeader}>
-							<span className={styles.linkIcon}>🔗</span>
-							<span className={styles.linkDomain}>{(statement as EvidenceWithLink).evidence!.linkMetadata!.domain}</span>
+					{/* Display link summary if available */}
+					{(statement as EvidenceWithLink).evidence?.linkMetadata && (
+						<div className={styles.linkSummary}>
+							<div className={styles.linkSummaryHeader}>
+								<span className={styles.linkIcon}>🔗</span>
+								<span className={styles.linkDomain}>
+									{(statement as EvidenceWithLink).evidence!.linkMetadata!.domain}
+								</span>
+							</div>
+							<p className={styles.linkSummaryText}>
+								{(statement as EvidenceWithLink).evidence!.linkMetadata!.summary}
+							</p>
 						</div>
-						<p className={styles.linkSummaryText}>{(statement as EvidenceWithLink).evidence!.linkMetadata!.summary}</p>
+					)}
+				</div>
+
+				<div className={styles.evidenceFooter}>
+					<div className={styles.votingButtons}>
+						<button
+							className={`${styles.voteButton} ${styles.voteButtonHelpful} ${userVote === 'helpful' ? styles.voteButtonActive : ''}`}
+							onClick={() => handleVote('helpful')}
+							aria-label="Mark as helpful"
+						>
+							<span className={styles.voteIcon}>👍</span>
+							<span className={styles.voteCount}>{helpfulCount}</span>
+						</button>
+						<button
+							className={`${styles.voteButton} ${styles.voteButtonNotHelpful} ${userVote === 'not-helpful' ? styles.voteButtonActive : ''}`}
+							onClick={() => handleVote('not-helpful')}
+							aria-label="Mark as not helpful"
+						>
+							<span className={styles.voteIcon}>👎</span>
+							<span className={styles.voteCount}>{notHelpfulCount}</span>
+						</button>
 					</div>
-				)}
-			</div>
 
-			<div className={styles.evidenceFooter}>
-				<div className={styles.votingButtons}>
-					<button
-						className={`${styles.voteButton} ${styles.voteButtonHelpful} ${userVote === 'helpful' ? styles.voteButtonActive : ''}`}
-						onClick={() => handleVote('helpful')}
-						aria-label="Mark as helpful"
-					>
-						<span className={styles.voteIcon}>👍</span>
-						<span className={styles.voteCount}>{helpfulCount}</span>
-					</button>
-					<button
-						className={`${styles.voteButton} ${styles.voteButtonNotHelpful} ${userVote === 'not-helpful' ? styles.voteButtonActive : ''}`}
-						onClick={() => handleVote('not-helpful')}
-						aria-label="Mark as not helpful"
-					>
-						<span className={styles.voteIcon}>👎</span>
-						<span className={styles.voteCount}>{notHelpfulCount}</span>
-					</button>
-				</div>
-
-				<div className={styles.netScore}>
-					<span className={styles.netScoreLabel}>{t('Net Score:')}</span>
-					<span className={`${styles.netScoreValue} ${netScore > 0 ? styles.netScorePositive : netScore < 0 ? styles.netScoreNegative : ''}`}>
-						{netScore > 0 ? '+' : ''}{netScore}
-					</span>
+					<div className={styles.netScore}>
+						<span className={styles.netScoreLabel}>{t('Net Score:')}</span>
+						<span
+							className={`${styles.netScoreValue} ${netScore > 0 ? styles.netScorePositive : netScore < 0 ? styles.netScoreNegative : ''}`}
+						>
+							{netScore > 0 ? '+' : ''}
+							{netScore}
+						</span>
+					</div>
 				</div>
 			</div>
-		</div>
 
-		{showEditModal && (
-			<AddEvidenceModal
-				parentStatementId={statement.parentId || ''}
-				onClose={() => setShowEditModal(false)}
-				editingStatement={statement}
-			/>
-		)}
+			{showEditModal && (
+				<AddEvidenceModal
+					parentStatementId={statement.parentId || ''}
+					onClose={() => setShowEditModal(false)}
+					editingStatement={statement}
+				/>
+			)}
 		</>
 	);
 };

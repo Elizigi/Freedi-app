@@ -8,17 +8,15 @@ import {
 } from '@/controllers/db/termsOfUse/termsOfUseService';
 import LoadingPage from '@/view/pages/loadingPage/LoadingPage';
 import { TermsOfUseAcceptance } from '@/types/agreement/Agreement';
-import { User } from 'delib-npm';
+import { User } from '@freedi/shared-types';
+import { logError } from '@/utils/errorHandling';
 
 interface AgreementProviderProps {
 	children: ReactNode;
 	user: User | null;
 }
 
-export const AgreementProvider: FC<AgreementProviderProps> = ({
-	children,
-	user,
-}) => {
+export const AgreementProvider: FC<AgreementProviderProps> = ({ children, user }) => {
 	const { t } = useTranslation();
 	const [showSignAgreement, setShowSignAgreement] = useState(false);
 	const [agreement, setAgreement] = useState<string>('');
@@ -34,9 +32,7 @@ export const AgreementProvider: FC<AgreementProviderProps> = ({
 
 			try {
 				// Check if user has accepted latest terms
-				const latestAcceptance = await getLatestTermsAcceptance(
-					user.uid
-				);
+				const latestAcceptance = await getLatestTermsAcceptance(user.uid);
 
 				if (latestAcceptance) {
 					setShowSignAgreement(false);
@@ -45,7 +41,10 @@ export const AgreementProvider: FC<AgreementProviderProps> = ({
 					setShowSignAgreement(true);
 				}
 			} catch (error) {
-				console.error('Error checking terms acceptance:', error);
+				logError(error, {
+					operation: 'context.AgreementProvider.checkTermsAcceptance',
+					metadata: { message: 'Error checking terms acceptance:' },
+				});
 			} finally {
 				setLoading(false);
 			}
@@ -77,7 +76,10 @@ export const AgreementProvider: FC<AgreementProviderProps> = ({
 				await logOut();
 			}
 		} catch (error) {
-			console.error('Agreement handling error:', error);
+			logError(error, {
+				operation: 'context.AgreementProvider.handleAgreement',
+				metadata: { message: 'Agreement handling error:' },
+			});
 		}
 	};
 
@@ -88,12 +90,7 @@ export const AgreementProvider: FC<AgreementProviderProps> = ({
 	return (
 		<>
 			{children}
-			{showSignAgreement && (
-				<TermsOfUse
-					handleAgreement={handleAgreement}
-					agreement={agreement}
-				/>
-			)}
+			{showSignAgreement && <TermsOfUse handleAgreement={handleAgreement} agreement={agreement} />}
 		</>
 	);
 };

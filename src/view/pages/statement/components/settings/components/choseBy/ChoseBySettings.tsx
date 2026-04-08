@@ -1,10 +1,4 @@
-import {
-	ChangeEvent,
-	FC,
-	MouseEvent,
-	TouchEvent,
-	useState,
-} from 'react';
+import { ChangeEvent, FC, MouseEvent, TouchEvent, useState } from 'react';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
 import RadioButtonWithLabel from '@/view/components/radioButtonWithLabel/RadioButtonWithLabel';
 import styles from './ChoseBySettings.module.scss';
@@ -12,11 +6,7 @@ import { StatementSettingsProps } from '../../settingsTypeHelpers';
 
 import { useSelector } from 'react-redux';
 
-import {
-	CutoffBy,
-	ResultsBy,
-	Statement,
-} from 'delib-npm';
+import { CutoffBy, ResultsBy, Statement } from '@freedi/shared-types';
 import { updateResultSettingsToDB } from '@/controllers/db/statements/setResultSettings';
 import { statementSelector } from '@/redux/statements/statementsSlice';
 import SectionTitle from '../sectionTitle/SectionTitle';
@@ -28,6 +18,56 @@ interface RangeProps {
 	value: number;
 }
 
+interface RangeConfig {
+	min: number;
+	max: number;
+	step: number;
+	suffix: string;
+	convert: (displayValue: number) => number;
+	reverse: (storedValue: number) => number;
+}
+
+function getRangeConfig(resultsBy: ResultsBy): RangeConfig {
+	switch (resultsBy) {
+		case ResultsBy.consensus:
+			return {
+				min: -100,
+				max: 100,
+				step: 5,
+				suffix: '%',
+				convert: (v: number) => v / 100,
+				reverse: (v: number) => v * 100,
+			};
+		case ResultsBy.mostLiked:
+			return {
+				min: 0,
+				max: 100,
+				step: 1,
+				suffix: '',
+				convert: (v: number) => v,
+				reverse: (v: number) => v,
+			};
+		case ResultsBy.averageLikesDislikes:
+			return {
+				min: -100,
+				max: 100,
+				step: 1,
+				suffix: '',
+				convert: (v: number) => v,
+				reverse: (v: number) => v,
+			};
+		default:
+			return {
+				min: -100,
+				max: 100,
+				step: 5,
+				suffix: '%',
+				convert: (v: number) => v / 100,
+				reverse: (v: number) => v * 100,
+			};
+	}
+}
+
 const ChoseBySettings: FC<StatementSettingsProps> = ({ statement: _statement }) => {
 	const { t } = useTranslation();
 	const statement = useSelector(statementSelector(_statement.statementId)) as Statement;
@@ -37,9 +77,10 @@ const ChoseBySettings: FC<StatementSettingsProps> = ({ statement: _statement }) 
 		step: 1,
 		value: statement?.resultsSettings?.cutoffNumber ?? 1,
 	});
-	
+
 	if (!statement) return null;
 	const { resultsSettings } = statement;
+	if (!resultsSettings) return null;
 
 	function handleEvaluationChange(e: ChangeEvent<HTMLInputElement>) {
 		if (!e.target.id) return;
@@ -49,7 +90,7 @@ const ChoseBySettings: FC<StatementSettingsProps> = ({ statement: _statement }) 
 			resultsBy: e.target.id as ResultsBy,
 		};
 		// dispatch(updateStoreResultsSettings({ statementId: statement.statementId, resultsSettings: newResultsSettings }));
-		updateResultSettingsToDB(statement.statementId, newResultsSettings)
+		updateResultSettingsToDB(statement.statementId, newResultsSettings);
 	}
 
 	function handleCutoffChange(e: ChangeEvent<HTMLInputElement>) {
@@ -61,21 +102,17 @@ const ChoseBySettings: FC<StatementSettingsProps> = ({ statement: _statement }) 
 		};
 
 		// dispatch(updateStoreResultsSettings({ statementId: statement.statementId, resultsSettings: newResultsSettings }));
-		updateResultSettingsToDB(statement.statementId, newResultsSettings)
+		updateResultSettingsToDB(statement.statementId, newResultsSettings);
 	}
 
 	function handleRangeChange(
-		e:
-			| ChangeEvent<HTMLInputElement>
-			| MouseEvent<HTMLInputElement>
-			| TouchEvent<HTMLInputElement>
+		e: ChangeEvent<HTMLInputElement> | MouseEvent<HTMLInputElement> | TouchEvent<HTMLInputElement>,
 	) {
-
-		const valueAsNumber = (e.target as HTMLInputElement).valueAsNumber;
+		const displayValue = (e.target as HTMLInputElement).valueAsNumber;
 
 		setRangeProps({
 			...rangeProps,
-			value: getValue(valueAsNumber),
+			value: displayValue,
 		});
 
 		let newResultsSettings;
@@ -83,66 +120,62 @@ const ChoseBySettings: FC<StatementSettingsProps> = ({ statement: _statement }) 
 		if (resultsSettings.cutoffBy === CutoffBy.topOptions) {
 			newResultsSettings = {
 				...resultsSettings,
-				numberOfResults: getValue(valueAsNumber),
+				numberOfResults: Math.ceil(displayValue ?? 0),
 			};
 		} else if (resultsSettings.cutoffBy === CutoffBy.aboveThreshold) {
+			const rangeConfig = getRangeConfig(resultsSettings.resultsBy);
+			const storedValue = rangeConfig.convert(displayValue ?? 0);
+
 			newResultsSettings = {
 				...resultsSettings,
-				cutoffNumber: getValue(valueAsNumber),
+				cutoffNumber: storedValue,
 			};
 		}
 
 		if (newResultsSettings && (e.type === 'mouseup' || e.type === 'touchend')) {
-
 			updateResultSettingsToDB(statement.statementId, newResultsSettings);
-
 		}
-	}
-
-	function getValue(value: number) {
-		return resultsSettings.cutoffBy === CutoffBy.aboveThreshold
-			? (value ?? 0)
-			: Math.ceil(value ?? 0);
 	}
 
 	return (
 		<div className={styles.choseBy}>
 			<SectionTitle title={t('Options Selection Criteria')} />
 			<section>
-				<h3 className='title'>
-					{t('How to evaluate and select top options')}
-				</h3>
+				<h3 className="title">{t('How to evaluate and select top options')}</h3>
 				<RadioButtonWithLabel
 					id={ResultsBy.consensus}
+					name="resultsBy"
 					labelText={t('By Consensus')}
 					checked={resultsSettings?.resultsBy === ResultsBy.consensus}
 					onChange={handleEvaluationChange}
 				/>
 				<RadioButtonWithLabel
 					id={ResultsBy.mostLiked}
+					name="resultsBy"
 					labelText={t('By most liked')}
 					checked={resultsSettings?.resultsBy === ResultsBy.mostLiked}
 					onChange={handleEvaluationChange}
 				/>
 				<RadioButtonWithLabel
 					id={ResultsBy.averageLikesDislikes}
+					name="resultsBy"
 					labelText={t('By sum liked - disliked')}
 					checked={resultsSettings?.resultsBy === ResultsBy.averageLikesDislikes}
 					onChange={handleEvaluationChange}
 				/>
 			</section>
 			<section>
-				<h3 className='title'>
-					{t('Method of selecting leading options')}
-				</h3>
+				<h3 className="title">{t('Method of selecting leading options')}</h3>
 				<RadioButtonWithLabel
 					id={CutoffBy.topOptions}
+					name="cutoffBy"
 					labelText={`${t('Top results')}`}
 					checked={resultsSettings.cutoffBy === CutoffBy.topOptions}
 					onChange={handleCutoffChange}
 				/>
 				<RadioButtonWithLabel
 					id={CutoffBy.aboveThreshold}
+					name="cutoffBy"
 					labelText={`${t('Above specific value')}`}
 					checked={resultsSettings.cutoffBy === CutoffBy.aboveThreshold}
 					onChange={handleCutoffChange}
@@ -163,7 +196,9 @@ export default ChoseBySettings;
 
 interface ComponentRangeProps {
 	statement: Statement;
-	handleRangeChange: (e: ChangeEvent<HTMLInputElement> | MouseEvent<HTMLInputElement> | TouchEvent<HTMLInputElement>) => void;
+	handleRangeChange: (
+		e: ChangeEvent<HTMLInputElement> | MouseEvent<HTMLInputElement> | TouchEvent<HTMLInputElement>,
+	) => void;
 }
 
 function TopOptionsRange({ statement: statement, handleRangeChange }: ComponentRangeProps) {
@@ -172,51 +207,21 @@ function TopOptionsRange({ statement: statement, handleRangeChange }: ComponentR
 	const rangeProps = {
 		maxValue: 20,
 		minValue: 1,
-		step: 1
-	};
-
-	return (
-		<>
-			<div className='title'>{t('Top options to be selected')}: {value}</div>
-			<div className={styles.range}>
-				<span>{rangeProps.minValue}</span>
-				<input
-					className='range'
-					type='range'
-					aria-label='Number Of Results'
-					name='numberOfResults'
-					defaultValue={value}
-					min={rangeProps.minValue}
-					max={rangeProps.maxValue}
-					step={rangeProps.step}
-					onChange={(e) => setValue((e.target as HTMLInputElement).valueAsNumber)}
-					onMouseUp={handleRangeChange}
-					onTouchEnd={handleRangeChange}
-				/>
-				<span>{rangeProps.maxValue}</span>
-			</div>
-		</>
-	)
-}
-function AboveThresholdRange({ statement: statement, handleRangeChange }: ComponentRangeProps) {
-	const { t } = useTranslation();
-	const [value, setValue] = useState<number>(statement.resultsSettings.cutoffNumber ?? 1);
-	const rangeProps = {
-		maxValue: 10,
-		minValue: 1,
 		step: 1,
 	};
 
 	return (
 		<>
-			<div className='title'>{t('The score to be considered as a top option')}: {value}</div>
+			<div className="title">
+				{t('Top options to be selected')}: {value}
+			</div>
 			<div className={styles.range}>
 				<span>{rangeProps.minValue}</span>
 				<input
-					className='range'
-					type='range'
-					aria-label='Number Of Results'
-					name='numberOfResults'
+					className="range"
+					type="range"
+					aria-label="Number Of Results"
+					name="numberOfResults"
 					defaultValue={value}
 					min={rangeProps.minValue}
 					max={rangeProps.maxValue}
@@ -228,5 +233,55 @@ function AboveThresholdRange({ statement: statement, handleRangeChange }: Compon
 				<span>{rangeProps.maxValue}</span>
 			</div>
 		</>
-	)
+	);
+}
+function AboveThresholdRange({ statement, handleRangeChange }: ComponentRangeProps) {
+	const { t } = useTranslation();
+	const { resultsBy, cutoffNumber } = statement.resultsSettings;
+	const rangeConfig = getRangeConfig(resultsBy);
+
+	const getInitialDisplayValue = (): number => {
+		const storedValue = cutoffNumber ?? 0;
+
+		if (resultsBy === ResultsBy.consensus) {
+			if (storedValue > 1 || storedValue < -1) {
+				return 0;
+			}
+
+			return rangeConfig.reverse(storedValue);
+		}
+
+		return storedValue;
+	};
+
+	const [displayValue, setDisplayValue] = useState<number>(getInitialDisplayValue());
+
+	const formatDisplayValue = (val: number): string => {
+		return rangeConfig.suffix ? `${val}${rangeConfig.suffix}` : String(val);
+	};
+
+	return (
+		<>
+			<div className="title">
+				{t('The score to be considered as a top option')}: {formatDisplayValue(displayValue)}
+			</div>
+			<div className={styles.range}>
+				<span>{formatDisplayValue(rangeConfig.min)}</span>
+				<input
+					className="range"
+					type="range"
+					aria-label="Cutoff Threshold"
+					name="cutoffNumber"
+					value={displayValue}
+					min={rangeConfig.min}
+					max={rangeConfig.max}
+					step={rangeConfig.step}
+					onChange={(e) => setDisplayValue((e.target as HTMLInputElement).valueAsNumber)}
+					onMouseUp={handleRangeChange}
+					onTouchEnd={handleRangeChange}
+				/>
+				<span>{formatDisplayValue(rangeConfig.max)}</span>
+			</div>
+		</>
+	);
 }

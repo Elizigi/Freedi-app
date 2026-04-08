@@ -5,11 +5,12 @@ import { getStatementSubscriptionId } from '@/controllers/general/helpers';
 import { getAuth } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { DB } from '@/controllers/db/config';
-import { Collections, StatementSubscription } from 'delib-npm';
+import { Collections, StatementSubscription } from '@freedi/shared-types';
 import { notificationService } from '@/services/notificationService';
 import BellIcon from '@/assets/icons/bellIcon.svg?react';
 import MailIcon from '@/assets/icons/bellIcon.svg?react';
 import PhoneIcon from '@/assets/icons/bellIcon.svg?react';
+import { logError } from '@/utils/errorHandling';
 
 interface NotificationPreferencesProps {
 	statementId: string;
@@ -28,7 +29,7 @@ const NotificationPreferences: React.FC<NotificationPreferencesProps> = ({ state
 	const [preferences, setPreferences] = useState<PreferencesState>({
 		getInAppNotification: true,
 		getEmailNotification: false,
-		getPushNotification: false
+		getPushNotification: false,
 	});
 	const [isLoading, setIsLoading] = useState<boolean>(true);
 	const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -38,7 +39,7 @@ const NotificationPreferences: React.FC<NotificationPreferencesProps> = ({ state
 		// Check notification permission
 		const permission = notificationService.safeGetPermission();
 		setHasNotificationPermission(permission === 'granted');
-		
+
 		// Load current preferences
 		const loadPreferences = async () => {
 			try {
@@ -48,14 +49,14 @@ const NotificationPreferences: React.FC<NotificationPreferencesProps> = ({ state
 				if (!auth.currentUser) {
 					setIsLoading(false);
 
-return;
+					return;
 				}
 
 				const subscriptionId = getStatementSubscriptionId(statementId, auth.currentUser.uid);
 				if (!subscriptionId) {
 					setIsLoading(false);
 
-return;
+					return;
 				}
 
 				const docRef = doc(DB, Collections.statementsSubscribe, subscriptionId);
@@ -66,13 +67,16 @@ return;
 					setPreferences({
 						getInAppNotification: data.getInAppNotification ?? true,
 						getEmailNotification: data.getEmailNotification ?? false,
-						getPushNotification: data.getPushNotification ?? false
+						getPushNotification: data.getPushNotification ?? false,
 					});
 				}
 
 				setIsLoading(false);
 			} catch (error) {
-				console.error('Error loading notification preferences:', error);
+				logError(error, {
+					operation: 'notifications.NotificationPreferences.unknown',
+					metadata: { message: 'Error loading notification preferences:' },
+				});
 				setIsLoading(false);
 			}
 		};
@@ -87,8 +91,8 @@ return;
 
 			if (!auth.currentUser) {
 				setIsSaving(false);
-				
-return;
+
+				return;
 			}
 
 			// Update local state
@@ -97,12 +101,32 @@ return;
 
 			// Update in database
 			await updateNotificationPreferences(statementId, auth.currentUser.uid, {
-				[key]: value
+				[key]: value,
 			});
+
+			// If enabling push notifications, add the FCM token to the subscription
+			if (key === 'getPushNotification' && value === true) {
+				const token = notificationService.getToken();
+				if (token) {
+					await notificationService.registerForStatementNotifications(
+						auth.currentUser.uid,
+						token,
+						statementId,
+					);
+					console.info('[NotificationPreferences] Added FCM token to subscription');
+				} else {
+					console.info(
+						'[NotificationPreferences] No FCM token available, will sync on next initialization',
+					);
+				}
+			}
 
 			setIsSaving(false);
 		} catch (error) {
-			console.error('Error updating notification preference:', error);
+			logError(error, {
+				operation: 'notifications.NotificationPreferences.unknown',
+				metadata: { message: 'Error updating notification preference:' },
+			});
 			// Revert on error
 			setPreferences(preferences);
 			setIsSaving(false);
@@ -120,8 +144,10 @@ return;
 	return (
 		<div className={styles.notificationPreferences}>
 			<h3>Notification Settings</h3>
-			<p className={styles.description}>Choose how you want to be notified about updates to this statement</p>
-			
+			<p className={styles.description}>
+				Choose how you want to be notified about updates to this statement
+			</p>
+
 			<div className={styles.preferenceItem}>
 				<div className={styles.preferenceInfo}>
 					<BellIcon className={styles.icon} />
@@ -148,9 +174,7 @@ return;
 						<h4>Push Notifications</h4>
 						<p>Get notified on all your devices even when the app is closed</p>
 						{!hasNotificationPermission && preferences.getPushNotification && (
-							<p className={styles.warningText}>
-								⚠️ Browser notifications must be enabled first
-							</p>
+							<p className={styles.warningText}>⚠️ Browser notifications must be enabled first</p>
 						)}
 					</div>
 				</div>
@@ -160,8 +184,11 @@ return;
 						checked={preferences.getPushNotification}
 						onChange={(e) => handlePreferenceChange('getPushNotification', e.target.checked)}
 						disabled={isSaving || (!hasNotificationPermission && !preferences.getPushNotification)}
-						title={!hasNotificationPermission && !preferences.getPushNotification ? 
-							"Please enable browser notifications first" : ""}
+						title={
+							!hasNotificationPermission && !preferences.getPushNotification
+								? 'Please enable browser notifications first'
+								: ''
+						}
 					/>
 					<span className={styles.slider}></span>
 				</label>

@@ -1,17 +1,14 @@
-import { DeliberativeElement, SortType, Statement } from 'delib-npm';
+import { SortType, Statement } from '@freedi/shared-types';
+import { logError } from '@/utils/errorHandling';
 
 // Updates the displayed options with how many votes each option has from the parent statement
-export function setSelectionsToOptions(
-	statement: Statement,
-	options: Statement[]
-) {
+export function setSelectionsToOptions(statement: Statement, options: Statement[]) {
 	try {
 		const parsedOptions = JSON.parse(JSON.stringify(options));
 		if (statement.selections) {
 			parsedOptions.forEach((option: Statement) => {
 				if (statement.selections?.[option.statementId] !== undefined) {
-					const optionSelections =
-						statement.selections[option.statementId];
+					const optionSelections = statement.selections[option.statementId];
 					option.voted = optionSelections;
 				}
 			});
@@ -19,16 +16,13 @@ export function setSelectionsToOptions(
 
 		return parsedOptions;
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'vote.statementVoteCont.setSelectionsToOptions' });
 
 		return options;
 	}
 }
 
-export function sortOptionsIndex(
-	options: Statement[],
-	sort: string | undefined
-): Statement[] {
+export function sortOptionsIndex(options: Statement[], sort: string | undefined): Statement[] {
 	let _options = JSON.parse(JSON.stringify(options));
 
 	// sort only the order of the options according to the sort
@@ -82,7 +76,7 @@ export function getTotalVoters(statement: Statement | undefined) {
 
 		return 0;
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'vote.statementVoteCont.getTotalVoters' });
 
 		return 0;
 	}
@@ -100,26 +94,14 @@ export function getSelections(statement: Statement, option: Statement) {
 
 		return 0;
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'vote.statementVoteCont.getSelections' });
 
 		return 0;
 	}
 }
 
-export const getSiblingOptionsByParentId = (
-	parentId: string,
-	statements: Statement[]
-): Statement[] => {
-	return statements.filter((statement) => {
-		return (
-			statement.parentId === parentId &&
-			statement.deliberativeElement === DeliberativeElement.option
-		);
-	});
-};
-
-export const getExistingOptionColors = (options: Statement[]): string[] => {
-	const colors = options.flatMap((option: Statement) => option.color ?? []);
-
-	return colors;
-};
+// Re-export from canonical location
+export {
+	getSiblingOptionsByParentId,
+	getExistingOptionColors,
+} from '@/controllers/utils/colorUtils';

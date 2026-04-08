@@ -2,10 +2,11 @@
 
 import { useEffect } from 'react';
 import { UI, TIME } from '@/constants/common';
+import { useTranslation } from '@freedi/shared-i18n/next';
 import styles from './SuccessMessage.module.scss';
 
 interface SuccessMessageProps {
-  action: 'created' | 'evaluated';
+  action: 'created' | 'evaluated' | 'merged';
   solutionText: string;
   voteCount?: number;
   onComplete: () => void;
@@ -19,6 +20,8 @@ export default function SuccessMessage({
   onComplete,
   autoRedirectSeconds = UI.AUTO_REDIRECT_SECONDS,
 }: SuccessMessageProps) {
+  const { t, tWithParams } = useTranslation();
+
   useEffect(() => {
     const timer = setTimeout(() => {
       onComplete();
@@ -28,37 +31,69 @@ export default function SuccessMessage({
   }, [onComplete, autoRedirectSeconds]);
 
   const isNewSolution = action === 'created';
+  const isMerged = action === 'merged';
+
+  const getIcon = () => {
+    if (isNewSolution) return '✅';
+    if (isMerged) return '🔀';
+
+    return '🤝';
+  };
+
+  const getTitle = () => {
+    if (isNewSolution) return t('Your solution added!');
+    if (isMerged) return t('Your idea was merged!');
+
+    return t('Great minds think alike!');
+  };
+
+  const getMessage = () => {
+    if (isNewSolution) {
+      return (
+        <>
+          {t('Thank you for contributing!')} 🎉
+          <br />
+          {t('Your idea is now part of the community discussion.')}
+        </>
+      );
+    }
+    if (isMerged) {
+      return (
+        <>
+          {t('Your idea has been merged with a similar proposal.')}
+          <br />
+          {t('Together we build stronger consensus!')} ✨
+        </>
+      );
+    }
+
+    return (
+      <>
+        {t('Your vote has been added to an existing solution.')}
+        <br />
+        {t("Together we're stronger!")} ✨
+      </>
+    );
+  };
 
   return (
-    <div className={`${styles.overlay} ${isNewSolution ? styles.newSolution : styles.evaluated}`}>
+    <div className={`${styles.overlay} ${isNewSolution ? styles.newSolution : isMerged ? styles.merged : styles.evaluated}`}>
       <div className={styles.card}>
         {/* Icon */}
         <div className={styles.iconContainer}>
           <div className={styles.icon}>
-            {isNewSolution ? '✅' : '🤝'}
+            {getIcon()}
           </div>
         </div>
 
         {/* Title */}
         <h2 className={styles.title}>
-          {isNewSolution ? 'Your solution added!' : 'Great minds think alike!'}
+          {getTitle()}
         </h2>
 
         {/* Message */}
         <p className={styles.message}>
-          {isNewSolution ? (
-            <>
-              Thank you for contributing! 🎉
-              <br />
-              Your idea is now part of the community discussion.
-            </>
-          ) : (
-            <>
-              Your vote has been added to an existing solution.
-              <br />
-              Together we&apos;re stronger! ✨
-            </>
-          )}
+          {getMessage()}
         </p>
 
         {/* Vote Counter (for evaluated solutions) */}
@@ -66,7 +101,7 @@ export default function SuccessMessage({
           <div className={styles.voteCounter}>
             <span className={styles.voteNumber}>{voteCount}</span>
             <span className={styles.voteLabel}>
-              {voteCount === 1 ? 'vote' : 'votes'}
+              {voteCount === 1 ? t('vote') : t('votes')}
             </span>
           </div>
         )}
@@ -78,12 +113,12 @@ export default function SuccessMessage({
 
         {/* Manual Continue Button */}
         <button onClick={onComplete} className={styles.continueButton}>
-          View All Solutions
+          {t('View All Solutions')}
         </button>
 
         {/* Auto-redirect Notice */}
         <p className={styles.autoRedirect}>
-          Auto-redirecting in {autoRedirectSeconds} seconds...
+          {tWithParams('Auto-redirecting in {{seconds}} seconds...', { seconds: autoRedirectSeconds })}
         </p>
       </div>
     </div>

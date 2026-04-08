@@ -1,7 +1,7 @@
-import { FieldValue, Timestamp } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '.';
 import { logger } from 'firebase-functions/v1';
-import { Collections } from 'delib-npm';
+import { Collections } from '@freedi/shared-types';
 
 type MembershipChange = {
 	eventType: 'new' | 'update' | 'delete';
@@ -27,7 +27,7 @@ export async function addOrRemoveMemberFromStatementDB(
 	statementId: string,
 	eventType: 'new' | 'update' | 'delete',
 	isMemberAfter: boolean,
-	isMemberBefore: boolean
+	isMemberBefore: boolean,
 ): Promise<void> {
 	if (!statementId) {
 		logger.error('statementId is required');
@@ -46,10 +46,10 @@ export async function addOrRemoveMemberFromStatementDB(
 		await db.doc(`${Collections.statementsMetaData}/${statementId}`).set(
 			{
 				numberOfMembers: FieldValue.increment(increment),
-				lastUpdate: Timestamp.now().toMillis(),
+				lastUpdate: Date.now(),
 				statementId,
 			},
-			{ merge: true }
+			{ merge: true },
 		);
 	} catch (error) {
 		logger.error('error updating statement with number of members', error);

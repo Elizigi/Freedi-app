@@ -1,39 +1,55 @@
-import { Statement, Role, StatementType, Screen } from "delib-npm";
-import { ReactNode, useEffect } from "react";
-import GroupPage from "../statementTypes/group/GroupPage";
-import QuestionPage from "../statementTypes/question/QuestionPage";
-import { useParams } from "react-router";
-import Triangle from "@/view/components/maps/triangle/Triangle";
-import MindMap from "../map/MindMap";
-import Chat from "../chat/Chat";
-import StatementSettings from "../settings/StatementSettings";
-import PolarizationIndexComp from "@/view/components/maps/polarizationIndex/PolarizationIndex";
-import PopperHebbianDiscussion from "../popperHebbian/PopperHebbianDiscussion";
-import { useSelector, useDispatch } from "react-redux";
-import { statementSelectorById, setStatement } from "@/redux/statements/statementsSlice";
-import { getStatementFromDB } from "@/controllers/db/statements/getStatement";
-import { logError } from "@/utils/errorHandling";
+import { Statement, Role, StatementType, Screen, QuestionType } from '@freedi/shared-types';
+import { ReactNode, useEffect, Suspense } from 'react';
+import { useParams } from 'react-router';
+import { useSelector, useDispatch } from 'react-redux';
+import { statementSelectorById, setStatement } from '@/redux/statements/statementsSlice';
+import { getStatementFromDB } from '@/controllers/db/statements/getStatement';
+import { logError } from '@/utils/errorHandling';
+import lazyWithRetry from '@/routes/lazyWithRetry';
+import LoadingPage from '@/view/pages/loadingPage/LoadingPage';
+import Chat from '../chat/Chat';
+import StagePage from '../statementTypes/stage/StagePage';
+import QuestionsView from '../questionsView/QuestionsView';
+import GroupPage from '../statementTypes/group/GroupPage';
+import PopperHebbianDiscussion from '../popperHebbian/PopperHebbianDiscussion';
+import TreeView from '../treeView/TreeView';
+import { CompoundQuestion } from '../statementTypes/question/compound';
+
+// Lazy load heavy screen components
+const Triangle = lazyWithRetry(
+	() => import('@/view/components/maps/triangle/Triangle'),
+	'Triangle',
+);
+const MindMap = lazyWithRetry(() => import('../map/MindMap'), 'MindMap');
+const StatementSettings = lazyWithRetry(
+	() => import('../settings/StatementSettings'),
+	'StatementSettings',
+);
+const PolarizationIndexComp = lazyWithRetry(
+	() => import('@/view/components/maps/polarizationIndex/PolarizationIndex'),
+	'PolarizationIndex',
+);
+const SubQuestionsMap = lazyWithRetry(
+	() => import('../subQuestionsMap/SubQuestionsMap'),
+	'SubQuestionsMap',
+);
 
 interface SwitchScreenProps {
 	statement: Statement | undefined;
 	role: Role | undefined;
+	activeView: string;
 }
 
-function SwitchScreen({
-	statement,
-	role,
-}: Readonly<SwitchScreenProps>): ReactNode {
+function SwitchScreen({ statement, role, activeView }: Readonly<SwitchScreenProps>): ReactNode {
 	let { screen } = useParams();
 	const dispatch = useDispatch();
-	const { hasChat } = statement?.statementSettings || { hasChat: false };
 
 	// Check if Popper-Hebbian discussion is enabled (check parent statement for options)
-	const parentStatement = useSelector(statementSelectorById(statement?.parentId || ""));
+	const parentStatement = useSelector(statementSelectorById(statement?.parentId || ''));
 
 	// Fetch parent statement from DB if not in Redux store
 	useEffect(() => {
 		const fetchParentStatement = async () => {
-			// Only fetch if we have a parentId but no parent statement in Redux
 			if (statement?.parentId && !parentStatement) {
 				try {
 					const parentFromDB = await getStatementFromDB(statement.parentId);
@@ -46,7 +62,7 @@ function SwitchScreen({
 						metadata: {
 							parentId: statement.parentId,
 							statementId: statement.statementId,
-						}
+						},
 					});
 				}
 			}
@@ -55,46 +71,96 @@ function SwitchScreen({
 		fetchParentStatement();
 	}, [statement?.parentId, parentStatement, dispatch, statement?.statementId]);
 
-	const isPopperHebbianEnabled = statement?.statementType === StatementType.option && parentStatement?.statementSettings?.popperianDiscussionEnabled === true;
+	const isPopperHebbianEnabled =
+		statement?.statementType === StatementType.option &&
+		parentStatement?.statementSettings?.popperianDiscussionEnabled === true;
 
-	// Debug logging
-	if (screen === 'chat') {
-		console.info('Chat screen debug:', {
-			statementId: statement?.statementId,
-			statementType: statement?.statementType,
-			isOption: statement?.statementType === StatementType.option,
-			parentId: statement?.parentId,
-			parentPopperianEnabled: parentStatement?.statementSettings?.popperianDiscussionEnabled,
-			statementPopperianEnabled: statement?.statementSettings?.popperianDiscussionEnabled,
-			isPopperHebbianEnabled
-		});
-	}
-
-	//allowed screens
+	// Permission check for settings
 	const hasPermission = role === Role.admin || role === Role.creator;
 	if (!hasPermission && screen === 'settings') {
 		screen = 'main';
 	}
-	if (!hasChat && screen === 'chat') {
-		screen = 'main';
-	}
 
+	// Map/settings/polarization screens remain as-is
 	switch (screen) {
 		case Screen.polarizationIndex:
-			return <PolarizationIndexComp />
+			return (
+				<Suspense fallback={<LoadingPage />}>
+					<PolarizationIndexComp />
+				</Suspense>
+			);
 		case Screen.agreementMap:
-			return <Triangle />;
+			return (
+				<Suspense fallback={<LoadingPage />}>
+					<Triangle />
+				</Suspense>
+			);
 		case Screen.mindMap:
-			return <MindMap />;
-		case Screen.chat:
-			// For chat screen with Popperian-Hegelian enabled, show both components
+			return (
+				<Suspense fallback={<LoadingPage />}>
+					<MindMap />
+				</Suspense>
+			);
+		case Screen.subQuestionsMap:
+			return (
+				<Suspense fallback={<LoadingPage />}>
+					<SubQuestionsMap />
+				</Suspense>
+			);
+		case Screen.settings:
+			return (
+				<Suspense fallback={<LoadingPage />}>
+					<StatementSettings />
+				</Suspense>
+			);
+		default:
+			// Main content area controlled by the segmented control
+			return (
+				<ViewByActiveTab
+					activeView={activeView}
+					statement={statement}
+					isPopperHebbianEnabled={isPopperHebbianEnabled}
+				/>
+			);
+	}
+}
+
+const QA_TYPE_FILTER = [StatementType.option] as const;
+const QUESTIONS_ONLY_FILTER = [StatementType.question] as const;
+
+interface ViewByActiveTabProps {
+	activeView: string;
+	statement: Statement | undefined;
+	isPopperHebbianEnabled: boolean;
+}
+
+function ViewByActiveTab({
+	activeView,
+	statement,
+	isPopperHebbianEnabled,
+}: Readonly<ViewByActiveTabProps>): ReactNode {
+	const isCompound =
+		statement?.statementType === StatementType.question &&
+		statement?.questionSettings?.questionType === QuestionType.compound;
+
+	if (isCompound) {
+		return <CompoundQuestion />;
+	}
+
+	const isTreeView = statement?.statementSettings?.enableTreeView !== false;
+
+	switch (activeView) {
+		case 'chat':
+			if (isTreeView) {
+				return <TreeView />;
+			}
 			if (isPopperHebbianEnabled && statement) {
 				return (
 					<>
 						<PopperHebbianDiscussion
 							statement={statement}
 							onCreateImprovedVersion={() => {
-								// Could trigger a new refinement session based on collected evidence
+								// Could trigger a new refinement session
 							}}
 						/>
 						<Chat />
@@ -103,30 +169,21 @@ function SwitchScreen({
 			}
 
 			return <Chat />;
-		case Screen.settings:
-			return <StatementSettings />;
-		case "main":
-			return <SwitchStatementType statement={statement} />;
+		case 'options':
+			if (isTreeView) {
+				return <TreeView typeFilter={QA_TYPE_FILTER} showSortNav defaultCollapsed />;
+			}
+
+			return <StagePage />;
+		case 'questions':
+			if (isTreeView) {
+				return <TreeView typeFilter={QUESTIONS_ONLY_FILTER} showSortNav />;
+			}
+
+			return <QuestionsView />;
 		default:
-			return <SwitchStatementType statement={statement} />;
-	}
-}
-
-function SwitchStatementType({
-	statement,
-}: Readonly<{
-	statement: Statement | undefined;
-}>): ReactNode {
-	const statementType = statement?.statementType;
-
-	switch (statementType) {
-		case StatementType.group:
+			// Fallback for group-type statements
 			return <GroupPage />;
-		case StatementType.question:
-		case StatementType.option:
-			return <QuestionPage />;
-		default:
-			return null;
 	}
 }
 

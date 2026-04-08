@@ -1,4 +1,4 @@
-import { Statement } from 'delib-npm';
+import { Statement } from '@freedi/shared-types';
 import { useAppSelector } from './reduxHooks';
 import { userSuggestionsSelector, statementSelector } from '@/redux/statements/statementsSlice';
 import { useAuthentication } from './useAuthentication';
@@ -14,15 +14,12 @@ export function useEvaluationGuard(statement: Statement): UseEvaluationGuardRetu
 
 	// Get parent statement to check settings
 	const parentStatement = useAppSelector(
-		statementSelector(statement.parentId || statement.statementId)
+		statementSelector(statement.parentId || statement.statementId),
 	);
 
 	// Get user's solutions for this question
 	const userSolutions = useAppSelector(
-		userSuggestionsSelector(
-			statement.parentId || statement.statementId,
-			creator?.uid
-		)
+		userSuggestionsSelector(statement.parentId || statement.statementId, creator?.uid),
 	);
 
 	// Check if the parent statement requires solution before evaluation

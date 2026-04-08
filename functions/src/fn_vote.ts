@@ -1,14 +1,20 @@
 import { Change, logger } from 'firebase-functions/v1';
 import { db } from './index';
 import { DocumentSnapshot, FieldValue } from 'firebase-admin/firestore';
-import { Collections, maxKeyInObject, Statement, statementToSimpleStatement, VoteSchema } from 'delib-npm';
+import {
+	Collections,
+	maxKeyInObject,
+	Statement,
+	statementToSimpleStatement,
+	VoteSchema,
+} from '@freedi/shared-types';
 
 import { FirestoreEvent } from 'firebase-functions/firestore';
 import { parse } from 'valibot';
+import { trackVoteEngagement } from './engagement/credits/trackEngagement';
+import { onVoteCreatedStats } from './fn_adminStats';
 
-export async function updateVote(
-	event: FirestoreEvent<Change<DocumentSnapshot> | undefined>
-) {
+export async function updateVote(event: FirestoreEvent<Change<DocumentSnapshot> | undefined>) {
 	if (!event?.data) return;
 
 	try {
@@ -19,13 +25,9 @@ export async function updateVote(
 
 		//update top voted
 
-		const parentStatementDB = await db
-			.doc(`${Collections.statements}/${newVote.parentId}`)
-			.get();
+		const parentStatementDB = await db.doc(`${Collections.statements}/${newVote.parentId}`).get();
 		if (!parentStatementDB.exists)
-			throw new Error(
-				`parentStatement ${newVote.parentId} do not exists`
-			);
+			throw new Error(`parentStatement ${newVote.parentId} do not exists`);
 
 		const parentStatement = parentStatementDB.data() as Statement;
 		const { selections, topVotedOption: previousTopVotedOption } = parentStatement;
@@ -42,9 +44,7 @@ export async function updateVote(
 
 		previousResultsDB.forEach((resultDB) => {
 			const result = resultDB.data() as Statement;
-			const docRef = db.doc(
-				`${Collections.statements}/${result.statementId}`
-			);
+			const docRef = db.doc(`${Collections.statements}/${result.statementId}`);
 			batch.update(docRef, { isVoted: false });
 		});
 
@@ -52,42 +52,48 @@ export async function updateVote(
 		await batch.commit();
 
 		//mark the new top voted option as selected
-		await db
-			.doc(`${Collections.statements}/${topVotedId}`)
-			.update({ isVoted: true });
+		await db.doc(`${Collections.statements}/${topVotedId}`).update({ isVoted: true });
 
 		//check if the topVoted option is the same as the previous one
 		//if not, update the topVoted option in the parent statement
 		if (previousTopVotedOption?.statementId !== topVotedId) {
-
 			//get topVoted option:
-			const topVotedOptionDB = await db
-				.doc(`${Collections.statements}/${topVotedId}`)
-				.get();
+			const topVotedOptionDB = await db.doc(`${Collections.statements}/${topVotedId}`).get();
 
-			if (!topVotedOptionDB.exists)
-				throw new Error(
-					`topVotedOption ${topVotedId} do not exists`
-				);
+			if (!topVotedOptionDB.exists) throw new Error(`topVotedOption ${topVotedId} do not exists`);
 			const topVotedOption = topVotedOptionDB.data() as Statement;
 
 			const simpleStatement = statementToSimpleStatement(topVotedOption);
 
 			await db.doc(`${Collections.statements}/${newVote.parentId}`).update({
-				topVotedOption: simpleStatement
+				topVotedOption: simpleStatement,
 			});
 
 			logger.info(`Vote updated successfully for parentId: ${newVote.parentId}`);
+		}
+
+		// Track engagement (non-blocking)
+		if (newVote.userId) {
+			trackVoteEngagement(
+				newVoteOptionId,
+				newVote.userId,
+				newVote.parentId,
+				parentStatement.topParentId,
+			).catch((err) => logger.warn('Engagement tracking failed:', err));
+		}
+
+		// Track admin stats on first vote only (non-blocking)
+		if (!event.data?.before?.data()) {
+			onVoteCreatedStats(newVote.createdAt).catch((err) =>
+				logger.warn('Admin stats tracking failed:', err),
+			);
 		}
 
 		return true;
 
 		async function updateParentStatementVotes() {
 			if (event.data?.before?.data() !== undefined) {
-				const previousVote = parse(
-					VoteSchema,
-					event.data.before.data()
-				);
+				const previousVote = parse(VoteSchema, event.data.before.data());
 
 				const previousVoteOptionId = previousVote.statementId;
 
@@ -97,8 +103,7 @@ export async function updateVote(
 					logger.info('new and previous are not the same');
 					await db.doc(`statements/${newVote.parentId}`).update({
 						[`selections.${newVoteOptionId}`]: FieldValue.increment(1),
-						[`selections.${previousVoteOptionId}`]:
-							FieldValue.increment(-1),
+						[`selections.${previousVoteOptionId}`]: FieldValue.increment(-1),
 					});
 				}
 			} else {

@@ -1,12 +1,13 @@
 import { FC, useState, useEffect } from 'react';
 import styles from './MembershipCard.module.scss';
+import { logError } from '@/utils/errorHandling';
 
 //icons
 import unBlockImg from '@/assets/icons/Icon-base-46px.png';
 import MemberAdmin from '@/assets/icons/memberAdmin.svg?react';
 import MemberRemove from '@/assets/icons/memberRemove.svg?react';
 import { updateMemberRole } from '@/controllers/db/subscriptions/setSubscriptions';
-import { StatementSubscription, Role } from 'delib-npm';
+import { StatementSubscription, Role } from '@freedi/shared-types';
 import { useAuthentication } from '@/controllers/hooks/useAuthentication';
 import { canBanUser, getBanDisabledReason } from '@/helpers/roleHelpers';
 
@@ -21,8 +22,7 @@ const MembershipCard: FC<Props> = ({ member }) => {
 	const { user } = useAuthentication();
 
 	useEffect(() => {
-		if (member.role)
-			setRole(member.role);
+		if (member.role) setRole(member.role);
 	}, [member.role]);
 
 	if (member.user?.uid === user?.uid) return null;
@@ -34,21 +34,23 @@ const MembershipCard: FC<Props> = ({ member }) => {
 	async function handleRemoveMember() {
 		// If trying to ban, check if user can be banned
 		if (role !== Role.banned && !userCanBeBanned) {
-			console.error('Cannot ban this user:', banDisabledReason);
+			logError(banDisabledReason, {
+				operation: 'membershipCard.MembershipCard.handleRemoveMember',
+				metadata: { message: 'Cannot ban this user:' },
+			});
 
 			return;
 		}
 
 		const newRole = role === Role.banned ? Role.member : Role.banned;
 		try {
-			await updateMemberRole(
-				member.statementId,
-				member.user.uid,
-				newRole
-			);
+			await updateMemberRole(member.statementId, member.user.uid, newRole);
 			setRole(newRole);
 		} catch (error) {
-			console.error('Error removing member:', error);
+			logError(error, {
+				operation: 'membershipCard.MembershipCard.handleRemoveMember',
+				metadata: { message: 'Error removing member:' },
+			});
 		}
 	}
 
@@ -56,14 +58,13 @@ const MembershipCard: FC<Props> = ({ member }) => {
 		try {
 			const newRole = role === Role.admin ? Role.member : Role.admin;
 			if (!member.user?.uid) throw new Error('No user id');
-			await updateMemberRole(
-				member.statementId,
-				member.user?.uid,
-				newRole
-			);
+			await updateMemberRole(member.statementId, member.user?.uid, newRole);
 			setRole(newRole);
 		} catch (error) {
-			console.error('Error setting role:', error);
+			logError(error, {
+				operation: 'membershipCard.MembershipCard.handleSetRole',
+				metadata: { message: 'Error setting role:' },
+			});
 		}
 	}
 
@@ -79,20 +80,14 @@ const MembershipCard: FC<Props> = ({ member }) => {
 				>
 					{!displayImg && firstLetter}
 				</div>
-				<div
-					className={`${styles.card__info__name} ${isBanned ? styles.bannedText : ''}`}
-				>
+				<div className={`${styles.card__info__name} ${isBanned ? styles.bannedText : ''}`}>
 					{member.user.displayName}
 				</div>
 			</div>
 			<div className={styles.card__membership}>
 				{isBanned ? (
 					<button onClick={handleRemoveMember}>
-						<img
-							src={unBlockImg}
-							alt='Unblock'
-							className={styles.unBlockImg}
-						/>
+						<img src={unBlockImg} alt="Unblock" className={styles.unBlockImg} />
 					</button>
 				) : (
 					<>
@@ -109,7 +104,7 @@ const MembershipCard: FC<Props> = ({ member }) => {
 							title={banDisabledReason || ''}
 							style={{
 								opacity: userCanBeBanned ? 1 : 0.5,
-								cursor: userCanBeBanned ? 'pointer' : 'not-allowed'
+								cursor: userCanBeBanned ? 'pointer' : 'not-allowed',
 							}}
 						>
 							<MemberRemove />

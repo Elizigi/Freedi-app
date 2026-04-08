@@ -1,5 +1,5 @@
 import firebaseConfig from '@/controllers/db/configKey';
-import { functionConfig } from 'delib-npm';
+import { functionConfig } from '@freedi/shared-types';
 
 // Helper to get environment variables
 // In tests, babel-plugin-transform-vite-meta-env transforms import.meta.env to process.env
@@ -17,7 +17,7 @@ function getEnvVar(key: string): string | undefined {
 export function APIEndPoint(
 	functionName: string,
 	queryParams: Record<string, string | number>,
-	envVarName?: string
+	envVarName?: string,
 ): string {
 	// Convert query parameters to URL search params
 	const queryString = Object.entries(queryParams)

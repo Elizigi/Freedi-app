@@ -1,6 +1,6 @@
 import { createSlice } from '@reduxjs/toolkit';
-import { RootState } from '../types';
-import { Results } from 'delib-npm';
+import { Results } from '@freedi/shared-types';
+import { logError } from '@/utils/errorHandling';
 
 // Define a type for the slice state
 interface ResultsState {
@@ -33,7 +33,7 @@ export const resultsSlice = createSlice({
 				//     }
 				// })
 			} catch (error) {
-				console.error(error);
+				logError(error, { operation: 'redux.results.resultsSlice.resultStore' });
 			}
 		},
 		resetResults: (state) => {
@@ -46,7 +46,5 @@ export const { setResults, resetResults } = resultsSlice.actions;
 
 // Other code such as selectors can use the imported `RootState` type
 export const resultSelector =
-	(statementId: string | undefined) => (state: RootState) =>
-		state.results.results.find(
-			(result) => result.top.statementId === statementId
-		);
+	(statementId: string | undefined) => (state: { results: ResultsState }) =>
+		state.results.results.find((result) => result.top.statementId === statementId);

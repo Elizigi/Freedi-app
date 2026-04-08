@@ -1,13 +1,10 @@
 import { Change, logger } from 'firebase-functions/v1';
 import { db } from '.';
-import {
-	Agree,
-	AgreeDisagree,
-	AgreeSchema, Collections
-} from 'delib-npm';
+import { Agree, AgreeDisagree, AgreeSchema, Collections } from '@freedi/shared-types';
 import { DocumentSnapshot } from 'firebase-admin/firestore';
 import { FirestoreEvent } from 'firebase-functions/firestore';
 import { parse } from 'valibot';
+import { logError } from './utils/errorHandling';
 
 export async function updateAgrees(
 	event: FirestoreEvent<
@@ -15,7 +12,7 @@ export async function updateAgrees(
 		{
 			agreeId: string;
 		}
-	>
+	>,
 ) {
 	if (!event.data) return;
 
@@ -26,19 +23,14 @@ export async function updateAgrees(
 		const agreeAfter: number = agreeAfterData?.agree ?? 0;
 		const agreeBefore: number = agreeBeforeData?.agree ?? 0;
 
-		const { diffInAgree, diffInDisagree } = agreeDisagreeDifferences(
-			agreeBefore,
-			agreeAfter
-		);
+		const { diffInAgree, diffInDisagree } = agreeDisagreeDifferences(agreeBefore, agreeAfter);
 
 		const combinedAgreement = {
 			...agreeAfterData,
 			...agreeBeforeData,
 		} as AgreeDisagree;
 
-		const statementRef = db
-			.collection(Collections.statements)
-			.doc(combinedAgreement.statementId);
+		const statementRef = db.collection(Collections.statements).doc(combinedAgreement.statementId);
 		await db.runTransaction(async (t) => {
 			const statement = await t.get(statementRef);
 			if (!statement.exists) throw new Error('Statement not found');
@@ -53,10 +45,7 @@ export async function updateAgrees(
 			const updateAgrees: Agree = {
 				agree: newAgree,
 				disagree: newDisagree,
-				avgAgree:
-					totalAgree !== 0
-						? (newAgree - newDisagree) / totalAgree
-						: 0,
+				avgAgree: totalAgree !== 0 ? (newAgree - newDisagree) / totalAgree : 0,
 			};
 
 			t.update(statementRef, { documentAgree: updateAgrees });
@@ -68,7 +57,7 @@ export async function updateAgrees(
 
 export function agreeDisagreeDifferences(
 	agreeBefore: number,
-	agreeAfter: number
+	agreeAfter: number,
 ): { diffInAgree: number; diffInDisagree: number } {
 	try {
 		const diffDisagree = Math.min(agreeBefore, 0) - Math.min(agreeAfter, 0);
@@ -79,7 +68,7 @@ export function agreeDisagreeDifferences(
 			diffInDisagree: diffDisagree,
 		};
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'agree.agreeDisagreeDifferences' });
 
 		return {
 			diffInAgree: 0,

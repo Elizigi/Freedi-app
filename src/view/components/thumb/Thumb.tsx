@@ -9,7 +9,7 @@ import SmileIcon from '@/assets/icons/smileIcon.svg?react';
 
 // Statement helpers
 import { setEvaluationToDB } from '@/controllers/db/evaluation/setEvaluation';
-import { Statement } from 'delib-npm';
+import { Statement } from '@freedi/shared-types';
 import { useAuthentication } from '@/controllers/hooks/useAuthentication';
 import { useEvaluationGuard } from '@/controllers/hooks/useEvaluationGuard';
 import { Tooltip } from '@/view/components/tooltip/Tooltip';
@@ -87,7 +87,9 @@ const Thumb: FC<ThumbProps> = ({
 			onClick={enableEvaluation ? () => handleVote(isUpVote) : undefined}
 			disabled={!enableEvaluation}
 			aria-disabled={!enableEvaluation}
-			aria-label={enableEvaluation ? (isUpVote ? 'Vote up' : 'Vote down') : t('Voting disabled - view only')}
+			aria-label={
+				enableEvaluation ? (isUpVote ? 'Vote up' : 'Vote down') : t('Voting disabled - view only')
+			}
 		>
 			{isUpVote ? <SmileIcon /> : <FrownIcon />}
 		</button>
@@ -96,10 +98,7 @@ const Thumb: FC<ThumbProps> = ({
 	if (!enableEvaluation) {
 		return (
 			<>
-				<Tooltip
-					content={t('Voting is currently disabled by the moderator')}
-					position='top'
-				>
+				<Tooltip content={t('Voting is currently disabled by the moderator')} position="top">
 					{button}
 				</Tooltip>
 				<AddSolutionPrompt

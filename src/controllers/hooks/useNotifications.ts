@@ -6,6 +6,7 @@ import { notificationService } from '@/services/notificationService';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { analyticsService, AnalyticsEvents } from '@/services/analytics';
 import { logger } from '@/services/logger';
+import { logError } from '@/utils/errorHandling';
 
 // Helper to check if service workers are supported
 const isServiceWorkerSupported = () => 'serviceWorker' in navigator;
@@ -24,12 +25,13 @@ export const useNotifications = (statementId?: string) => {
 		token: string | null;
 		serviceWorkerSupported: boolean;
 	}>({
-		permission: isNotificationSupported() && isServiceWorkerSupported() 
-			? notificationService.safeGetPermission() 
-			: 'unsupported',
+		permission:
+			isNotificationSupported() && isServiceWorkerSupported()
+				? notificationService.safeGetPermission()
+				: 'unsupported',
 		loading: false,
 		token: null,
-		serviceWorkerSupported: isServiceWorkerSupported()
+		serviceWorkerSupported: isServiceWorkerSupported(),
 	});
 
 	const params = useParams();
@@ -38,42 +40,35 @@ export const useNotifications = (statementId?: string) => {
 		? useAppSelector(hasTokenSelector('', currentStatementId))
 		: false;
 
-	// Initialize notifications based on authentication state
+	// Sync permission state and set up SW message listener.
+	// NOTE: We do NOT auto-initialize notifications on auth state change.
+	// Notification permission and token acquisition are deferred until the user
+	// shows intent (e.g., 3 actions in a discussion, or explicit prompt interaction).
+	// If permission was already granted in a previous session, useNotificationSetup
+	// (in StatementMain) handles re-initialization silently.
 	useEffect(() => {
-		// Early return if service workers or notifications aren't supported
 		if (!notificationService.isSupported()) {
-			console.info('Service Workers or Notifications not supported in this browser mode');
-
-			return () => { }; // Empty cleanup function
+			return () => {};
 		}
 
 		const auth = getAuth();
 
-		const unsubscribe = onAuthStateChanged(auth, async (user) => {
+		// Only sync existing state - do NOT call initialize() or requestPermission()
+		const unsubscribe = onAuthStateChanged(auth, (user) => {
 			if (user) {
-				// User is signed in, initialize notification service
-				setPermissionState(prev => ({ ...prev, loading: true }));
-				try {
-					await notificationService.initialize(user.uid);
-					const token = notificationService.getToken();
-
-					setPermissionState({
-						permission: notificationService.safeGetPermission(),
-						loading: false,
-						token,
-						serviceWorkerSupported: true
-					});
-				} catch (error) {
-					console.error('Error initializing notifications:', error);
-					setPermissionState(prev => ({ ...prev, loading: false }));
-				}
+				const token = notificationService.getToken();
+				setPermissionState({
+					permission: notificationService.safeGetPermission(),
+					loading: false,
+					token,
+					serviceWorkerSupported: true,
+				});
 			} else {
-				// User is signed out
 				setPermissionState({
 					permission: notificationService.safeGetPermission(),
 					loading: false,
 					token: null,
-					serviceWorkerSupported: true
+					serviceWorkerSupported: true,
 				});
 			}
 		});
@@ -82,19 +77,15 @@ export const useNotifications = (statementId?: string) => {
 		const handleServiceWorkerMessage = (event: MessageEvent) => {
 			if (event.data && event.data.type === 'NOTIFICATION_CLICKED') {
 				console.info('Notification clicked:', event.data.payload);
-				// Handle notification click - could update UI, navigate to relevant page, etc.
 			} else if (event.data && event.data.type === 'PLAY_NOTIFICATION_SOUND') {
-				// Play notification sound when requested by service worker
 				playNotificationSound();
 			}
 		};
 
-		// Only add event listener if service worker is available
 		if (navigator.serviceWorker) {
 			navigator.serviceWorker.addEventListener('message', handleServiceWorkerMessage);
 		}
 
-		// Clean up listeners on unmount
 		return () => {
 			unsubscribe();
 			if (navigator.serviceWorker) {
@@ -110,7 +101,7 @@ export const useNotifications = (statementId?: string) => {
 			return 'unsupported';
 		}
 
-		setPermissionState(prev => ({ ...prev, loading: true }));
+		setPermissionState((prev) => ({ ...prev, loading: true }));
 
 		try {
 			const result = await Notification.requestPermission();
@@ -125,13 +116,13 @@ export const useNotifications = (statementId?: string) => {
 						permission: result,
 						loading: false,
 						token,
-						serviceWorkerSupported: true
+						serviceWorkerSupported: true,
 					});
-					
+
 					// Track notification enabled
 					logger.info('Notifications enabled', { userId: auth.currentUser.uid });
 					analyticsService.logEvent(AnalyticsEvents.NOTIFICATION_ENABLED, {
-						notificationType: 'all'
+						notificationType: 'all',
 					});
 				}
 			} else {
@@ -139,16 +130,16 @@ export const useNotifications = (statementId?: string) => {
 					permission: result,
 					loading: false,
 					token: null,
-					serviceWorkerSupported: true
+					serviceWorkerSupported: true,
 				});
-				
+
 				logger.info('Notification permission denied', { result });
 			}
 
 			return result;
 		} catch (error) {
 			logger.error('Error requesting notification permission', error);
-			setPermissionState(prev => ({ ...prev, loading: false }));
+			setPermissionState((prev) => ({ ...prev, loading: false }));
 
 			return 'denied';
 		}
@@ -159,9 +150,16 @@ export const useNotifications = (statementId?: string) => {
 		try {
 			const audio = new Audio('/assets/sounds/bell.mp3');
 			audio.volume = 0.5; // 50% volume
-			audio.play().catch(console.error);
+			audio
+				.play()
+				.catch((error: unknown) =>
+					logError(error, { operation: 'hooks.useNotifications.playNotificationSound' }),
+				);
 		} catch (error) {
-			console.error('Error playing notification sound:', error);
+			logError(error, {
+				operation: 'hooks.useNotifications.playNotificationSound',
+				metadata: { message: 'Error playing notification sound:' },
+			});
 		}
 	};
 
@@ -174,12 +172,14 @@ export const useNotifications = (statementId?: string) => {
 		}
 
 		if (notificationService.safeGetPermission() !== 'granted') {
-			console.error('Notification permission not granted');
+			logError(new Error('Notification permission not granted'), {
+				operation: 'hooks.useNotifications.sendTestNotification',
+			});
 
 			return;
 		}
 
-		navigator.serviceWorker.ready.then(registration => {
+		navigator.serviceWorker.ready.then((registration) => {
 			registration.showNotification('FreeDi App', {
 				body: 'This is a test notification',
 				icon: '/icons/logo-192px.png',
@@ -189,10 +189,10 @@ export const useNotifications = (statementId?: string) => {
 				actions: [
 					{
 						action: 'open',
-						title: 'Open'
-					}
+						title: 'Open',
+					},
 				],
-				requireInteraction: true
+				requireInteraction: true,
 			});
 
 			playNotificationSound();
@@ -207,15 +207,15 @@ export const useNotifications = (statementId?: string) => {
 			return;
 		}
 
-		navigator.serviceWorker.ready.then(registration => {
-			registration.getNotifications().then(notifications => {
-				notifications.forEach(notification => notification.close());
+		navigator.serviceWorker.ready.then((registration) => {
+			registration.getNotifications().then((notifications) => {
+				notifications.forEach((notification) => notification.close());
 			});
 
 			// Send message to service worker to clear any background notifications
 			if (navigator.serviceWorker.controller) {
 				navigator.serviceWorker.controller.postMessage({
-					type: 'CLEAR_NOTIFICATIONS'
+					type: 'CLEAR_NOTIFICATIONS',
 				});
 			}
 		});
@@ -226,7 +226,7 @@ export const useNotifications = (statementId?: string) => {
 		requestPermission,
 		sendTestNotification,
 		clearNotifications,
-		hasToken
+		hasToken,
 	};
 };
 

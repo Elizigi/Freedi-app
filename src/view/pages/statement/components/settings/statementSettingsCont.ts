@@ -16,14 +16,18 @@ import {
 	Statement,
 	Vote,
 	Creator,
-} from 'delib-npm';
+	Paragraph,
+} from '@freedi/shared-types';
 import { Dispatch, SetStateAction } from 'react';
+import { logError } from '@/utils/errorHandling';
+import { store } from '@/redux/store';
+import { setStatement } from '@/redux/statements/statementsSlice';
 
 // Get users that voted on options in this statement
 export async function handleGetVoters(
 	parentId: string | undefined,
 	setVoters: Dispatch<SetStateAction<Vote[]>>,
-	setClicked: Dispatch<SetStateAction<boolean>>
+	setClicked: Dispatch<SetStateAction<boolean>>,
 ) {
 	if (!parentId) return;
 	const voters = await getVoters(parentId);
@@ -35,7 +39,7 @@ export async function handleGetVoters(
 export async function handleGetNonVoters(
 	parentId: string | undefined,
 	setNonVoters: Dispatch<SetStateAction<Vote[]>>,
-	setClicked: Dispatch<SetStateAction<boolean>>
+	setClicked: Dispatch<SetStateAction<boolean>>,
 ) {
 	if (!parentId) return;
 
@@ -49,7 +53,10 @@ export async function handleGetNonVoters(
 
 		setClicked(true);
 	} catch (error) {
-		console.error('Error fetching non-voters:', error);
+		logError(error, {
+			operation: 'settings.statementSettingsCont.nonVoters',
+			metadata: { message: 'Error fetching non-voters:' },
+		});
 	}
 }
 
@@ -57,7 +64,7 @@ export async function handleGetNonVoters(
 export async function handleGetEvaluators(
 	parentId: string | undefined,
 	setEvaluators: Dispatch<SetStateAction<Evaluation[]>>,
-	setClicked: Dispatch<SetStateAction<boolean>>
+	setClicked: Dispatch<SetStateAction<boolean>>,
 ) {
 	if (!parentId) return;
 	const evaluators = await getEvaluations(parentId);
@@ -89,7 +96,7 @@ export async function setNewStatement({
 			numberOfResults,
 			enableAddEvaluationOption,
 			enableAddVotingOption,
-			enhancedEvaluation,
+			evaluationType,
 			showEvaluation,
 			membership,
 		} = getSetStatementData(statement);
@@ -98,7 +105,7 @@ export async function setNewStatement({
 		if (!statementId) {
 			const newStatement = createStatement({
 				text: statement.statement,
-				description: statement.description,
+				paragraphs: statement.paragraphs,
 				statementType,
 				parentStatement: 'top',
 				resultsBy,
@@ -106,13 +113,12 @@ export async function setNewStatement({
 				hasChildren,
 				enableAddEvaluationOption,
 				enableAddVotingOption,
-				enhancedEvaluation,
+				evaluationType,
 				showEvaluation,
 				membership,
 			});
 
-			if (!newStatement)
-				throw new Error('newStatement had error in creating');
+			if (!newStatement) throw new Error('newStatement had error in creating');
 
 			await setStatementToDB({
 				parentStatement: 'top',
@@ -130,18 +136,17 @@ export async function setNewStatement({
 			const newStatement = updateStatement({
 				statement,
 				text: statement.statement,
-				description: statement.description ?? '',
+				paragraphs: statement.paragraphs ?? [],
 				resultsBy,
 				numberOfResults,
 				hasChildren,
 				enableAddEvaluationOption,
 				enableAddVotingOption,
-				enhancedEvaluation,
+				evaluationType,
 				showEvaluation,
 				membership,
 			});
-			if (!newStatement)
-				throw new Error('newStatement had not been updated');
+			if (!newStatement) throw new Error('newStatement had not been updated');
 
 			await setStatementToDB({
 				parentStatement,
@@ -151,7 +156,7 @@ export async function setNewStatement({
 			return newStatement;
 		}
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'settings.statementSettingsCont.unknown' });
 
 		return undefined;
 	}
@@ -162,46 +167,29 @@ export const getStatementSettings = (statement: Statement) => {
 		statement.statementSettings ?? defaultStatementSettings;
 
 	return {
-		enableAddEvaluationOption: Boolean(
-			statementSettings.enableAddEvaluationOption
-		),
-		defaultLookForSimilarities: Boolean(
-			statementSettings.defaultLookForSimilarities
-		),
+		enableAddEvaluationOption: Boolean(statementSettings.enableAddEvaluationOption),
+		defaultLookForSimilarities: Boolean(statementSettings.defaultLookForSimilarities),
 		enableAddVotingOption: Boolean(statementSettings.enableAddVotingOption),
 		enhancedEvaluation: Boolean(statementSettings.enhancedEvaluation),
 		evaluationType: statementSettings.evaluationType, // Add this field
 		showEvaluation: Boolean(statementSettings.showEvaluation),
 		subScreens: statementSettings.subScreens ?? [],
-		inVotingGetOnlyResults: Boolean(
-			statementSettings.inVotingGetOnlyResults
-		),
-		enableSimilaritiesSearch: Boolean(
-			statementSettings.enableSimilaritiesSearch
-		),
-		enableNavigationalElements: Boolean(
-			statementSettings.enableNavigationalElements
-		),
+		inVotingGetOnlyResults: Boolean(statementSettings.inVotingGetOnlyResults),
+		enableSimilaritiesSearch: Boolean(statementSettings.enableSimilaritiesSearch),
+		enableNavigationalElements: Boolean(statementSettings.enableNavigationalElements),
 		hasChat: Boolean(statementSettings.hasChat),
 		hasChildren: Boolean(statementSettings.hasChildren),
 		joiningEnabled: Boolean(statementSettings.joiningEnabled),
-		enableAddNewSubQuestionsButton: Boolean(
-			statementSettings.enableAddNewSubQuestionsButton
-		),
+		enableAddNewSubQuestionsButton: Boolean(statementSettings.enableAddNewSubQuestionsButton),
 		enableAIImprovement: Boolean(statementSettings.enableAIImprovement),
-		isSubmitMode: Boolean(statementSettings.isSubmitMode)
+		isSubmitMode: Boolean(statementSettings.isSubmitMode),
 	};
 };
 
 const getSetStatementData = (statement: Statement) => {
-	const { resultsBy, numberOfResults } =
-		statement.resultsSettings ?? resultsSettingsDefault;
-	const {
-		enableAddEvaluationOption,
-		enableAddVotingOption,
-		enhancedEvaluation,
-		showEvaluation,
-	} = getStatementSettings(statement);
+	const { resultsBy, numberOfResults } = statement.resultsSettings ?? resultsSettingsDefault;
+	const { enableAddEvaluationOption, enableAddVotingOption, evaluationType, showEvaluation } =
+		getStatementSettings(statement);
 
 	return {
 		hasChildren: Boolean(statement.hasChildren),
@@ -209,7 +197,7 @@ const getSetStatementData = (statement: Statement) => {
 		numberOfResults,
 		enableAddEvaluationOption,
 		enableAddVotingOption,
-		enhancedEvaluation,
+		evaluationType,
 		showEvaluation,
 		membership: statement.membership,
 	};
@@ -221,9 +209,7 @@ interface ToggleSubScreenParams {
 	statement: Statement;
 }
 
-export const toggleSubScreen = ({
-	statement,
-}: ToggleSubScreenParams): Statement => {
+export const toggleSubScreen = ({ statement }: ToggleSubScreenParams): Statement => {
 	return {
 		...statement,
 	};
@@ -232,7 +218,7 @@ export const toggleSubScreen = ({
 interface CreateStatementFromModalParams {
 	title: string;
 	creator: Creator;
-	description: string;
+	paragraphs?: Paragraph[];
 	isOptionSelected: boolean;
 	parentStatement: Statement | 'top';
 	isSendToStoreTemp?: boolean;
@@ -241,7 +227,7 @@ interface CreateStatementFromModalParams {
 
 export async function createStatementFromModal({
 	title,
-	description,
+	paragraphs,
 	parentStatement,
 	statementType,
 }: CreateStatementFromModalParams) {
@@ -253,7 +239,7 @@ export async function createStatementFromModal({
 			...defaultStatementSettings,
 			hasChildren: true,
 			text: title,
-			description,
+			paragraphs,
 			parentStatement,
 			statementType: statementType || StatementType.group,
 		});
@@ -262,16 +248,12 @@ export async function createStatementFromModal({
 
 		await setStatementToDB({
 			statement: newStatement,
-			parentStatement:
-				parentStatement === 'top' ? 'top' : parentStatement,
+			parentStatement: parentStatement === 'top' ? 'top' : parentStatement,
 		});
 
-		await setStatementToDB({
-			statement: newStatement,
-			parentStatement:
-				parentStatement === 'top' ? 'top' : parentStatement,
-		});
+		// Dispatch to Redux immediately so the UI updates without waiting for Firestore listener
+		store.dispatch(setStatement(newStatement));
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'settings.statementSettingsCont.unknown' });
 	}
 }

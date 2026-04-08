@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import { cookies } from 'next/headers';
-import { Statement } from 'delib-npm';
+import { Statement } from '@freedi/shared-types';
 import { getQuestionFromFirebase, getAllSolutionsSorted, getUserSolutions } from '@/lib/firebase/queries';
 import { getUserIdFromCookies } from '@/lib/utils/user';
 import { LanguageOverrideProvider } from '@/components/providers/LanguageOverrideProvider';
@@ -77,7 +77,7 @@ export default async function QResultsPage({ params }: PageProps) {
   return (
     <LanguageOverrideProvider
       adminLanguage={question.defaultLanguage}
-      forceLanguage={question.forceLanguage}
+      forceLanguage={(question as { forceLanguage?: boolean }).forceLanguage ?? false}
     >
       <div className={styles.resultsPage}>
         <header className={styles.resultsPage__header}>

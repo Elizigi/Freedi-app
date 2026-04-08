@@ -4,11 +4,12 @@ import { notificationService } from '@/services/notificationService';
 import { getAuth } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { DB } from '@/controllers/db/config';
-import { Collections, StatementSubscription } from 'delib-npm';
+import { Collections, StatementSubscription } from '@freedi/shared-types';
 import { getStatementSubscriptionId } from '@/controllers/general/helpers';
 import { updateNotificationPreferences } from '@/controllers/db/subscriptions/setSubscriptions';
 import BellIcon from '@/assets/icons/bellIcon.svg?react';
 import BellSlashIcon from '@/assets/icons/bellSlashIcon.svg?react';
+import { logError } from '@/utils/errorHandling';
 
 interface NotificationSubscriptionButtonProps {
 	statementId: string;
@@ -17,7 +18,9 @@ interface NotificationSubscriptionButtonProps {
 /**
  * Button that allows users to subscribe to or unsubscribe from push notifications for a statement
  */
-const NotificationSubscriptionButton: FC<NotificationSubscriptionButtonProps> = ({ statementId }) => {
+const NotificationSubscriptionButton: FC<NotificationSubscriptionButtonProps> = ({
+	statementId,
+}) => {
 	const [isSubscribed, setIsSubscribed] = useState<boolean>(false);
 	const [isLoading, setIsLoading] = useState<boolean>(true);
 	const [permissionState, setPermissionState] = useState<NotificationPermission>('default');
@@ -59,7 +62,10 @@ const NotificationSubscriptionButton: FC<NotificationSubscriptionButtonProps> = 
 
 				setIsLoading(false);
 			} catch (error) {
-				console.error('Error checking notification subscription:', error);
+				logError(error, {
+					operation: 'notifications.NotificationSubscriptionButton.checkSubscription',
+					metadata: { message: 'Error checking notification subscription:' },
+				});
 				setIsLoading(false);
 			}
 		};
@@ -103,7 +109,9 @@ const NotificationSubscriptionButton: FC<NotificationSubscriptionButtonProps> = 
 			const token = notificationService.getToken();
 
 			if (!token) {
-				console.error('No FCM token available');
+				logError(new Error('No FCM token available'), {
+					operation: 'notifications.NotificationSubscriptionButton.unknown',
+				});
 				setIsLoading(false);
 
 				return;
@@ -112,7 +120,7 @@ const NotificationSubscriptionButton: FC<NotificationSubscriptionButtonProps> = 
 			if (isSubscribed) {
 				// Unsubscribe - update preference
 				await updateNotificationPreferences(statementId, auth.currentUser.uid, {
-					getPushNotification: false
+					getPushNotification: false,
 				});
 				// Also unregister from notification service
 				await notificationService.unregisterFromStatementNotifications(statementId);
@@ -120,20 +128,23 @@ const NotificationSubscriptionButton: FC<NotificationSubscriptionButtonProps> = 
 			} else {
 				// Subscribe - update preference and register token
 				await updateNotificationPreferences(statementId, auth.currentUser.uid, {
-					getPushNotification: true
+					getPushNotification: true,
 				});
 				// Register for notifications
 				const success = await notificationService.registerForStatementNotifications(
 					auth.currentUser.uid,
 					token,
-					statementId
+					statementId,
 				);
 				setIsSubscribed(success);
 			}
 
 			setIsLoading(false);
 		} catch (error) {
-			console.error('Error toggling notification subscription:', error);
+			logError(error, {
+				operation: 'notifications.NotificationSubscriptionButton.unknown',
+				metadata: { message: 'Error toggling notification subscription:' },
+			});
 			setIsLoading(false);
 		}
 	};
@@ -159,9 +170,7 @@ const NotificationSubscriptionButton: FC<NotificationSubscriptionButtonProps> = 
 			{isLoading ? (
 				<span className={styles.loadingIndicator}></span>
 			) : (
-				<>
-					{isSubscribed ? <BellIcon /> : <BellSlashIcon />}
-				</>
+				<>{isSubscribed ? <BellIcon /> : <BellSlashIcon />}</>
 			)}
 		</button>
 	);

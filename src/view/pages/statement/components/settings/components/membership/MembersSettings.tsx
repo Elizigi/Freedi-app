@@ -1,6 +1,7 @@
 import { FC, useEffect, useState } from 'react';
 import { createSelector } from '@reduxjs/toolkit';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
+import { logError } from '@/utils/errorHandling';
 
 // Third party imports
 import { useParams } from 'react-router';
@@ -11,6 +12,7 @@ import SetWaitingList from '../../../../../../../controllers/db/waitingList/SetW
 import MembershipLine from './membershipCard/MembershipCard';
 import ShareIcon from '@/assets/icons/shareIcon.svg?react';
 import { useAppSelector } from '@/controllers/hooks/reduxHooks';
+import { creatorSelector } from '@/redux/creator/creatorSlice';
 
 // Custom components
 
@@ -18,7 +20,7 @@ import { useAppSelector } from '@/controllers/hooks/reduxHooks';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
 import { RootState } from '@/redux/store';
 import styles from './MembersSettings.module.scss';
-import { StatementSubscription, Role, Statement, Collections } from 'delib-npm';
+import { StatementSubscription, Role, Statement, Collections } from '@freedi/shared-types';
 
 interface MembersSettingsProps {
 	statement: Statement;
@@ -29,15 +31,16 @@ const MembersSettings: FC<MembersSettingsProps> = ({ statement }) => {
 	const { statementId } = useParams();
 	const { t } = useTranslation();
 	const [userCount, setUserCount] = useState<number>(0);
+	const user = useAppSelector(creatorSelector);
+	const userId = user?.uid;
 
 	const statementMembershipSelector = (statementId: string | undefined) =>
 		createSelector(
 			(state: RootState) => state.statements.statementMembership,
 			(memberships) =>
 				memberships.filter(
-					(membership: StatementSubscription) =>
-						membership.statementId === statementId
-				)
+					(membership: StatementSubscription) => membership.statementId === statementId,
+				),
 		);
 
 	function handleShare(statement: Statement | undefined) {
@@ -51,45 +54,50 @@ const MembersSettings: FC<MembersSettingsProps> = ({ statement }) => {
 		navigator.share(shareData);
 	}
 
-	const fetchAwaitingUsers = async (): Promise<void> => {
-		const usersCollection = collection(
-			FireStore,
-			Collections.awaitingUsers
-		);
-		const usersSnapshot = await getDocs(usersCollection);
-		const count = usersSnapshot.docs.length;
-
-		return setUserCount(count);
-	};
-
 	useEffect(() => {
-		fetchAwaitingUsers();
-	}, []);
+		const fetchAwaitingUsers = async (): Promise<void> => {
+			if (!userId) {
+				setUserCount(0);
 
-	const members: StatementSubscription[] = useAppSelector(
-		statementMembershipSelector(statementId)
-	);
+				return;
+			}
+
+			try {
+				const awaitingUsersQuery = query(
+					collection(FireStore, Collections.awaitingUsers),
+					where('adminIds', 'array-contains', userId),
+				);
+				const usersSnapshot = await getDocs(awaitingUsersQuery);
+				setUserCount(usersSnapshot.docs.length);
+			} catch (error) {
+				logError(error, {
+					operation: 'membership.MembersSettings.fetchAwaitingUsers',
+					metadata: { message: 'Error fetching awaiting users:' },
+				});
+				setUserCount(0);
+			}
+		};
+
+		fetchAwaitingUsers();
+	}, [userId]);
+
+	const members: StatementSubscription[] = useAppSelector(statementMembershipSelector(statementId));
 
 	if (!members) return null;
 
-	const joinedMembers = members.filter(
-		(member) => member.role !== Role.banned
-	);
+	const joinedMembers = members.filter((member) => member.role !== Role.banned);
 	const bannedUser = members.filter((member) => member.role === Role.banned);
 
 	return (
 		<div className={styles.membersSettings}>
-			<button
-				className={styles.linkAnonymous}
-				onClick={() => handleShare(statement)}
-			>
+			<button className={styles.linkAnonymous} onClick={() => handleShare(statement)}>
 				{t('Send a link to anonymous users')}
 				<ShareIcon />
 			</button>
-			<div className='upload-waiting-list'>
+			<div className="upload-waiting-list">
 				<SetWaitingList />
 			</div>
-			<div className='title'>
+			<div className="title">
 				{t('Joined members')} ({`${userCount}`})
 			</div>
 			<div className={styles.membersBox}>
@@ -98,7 +106,7 @@ const MembersSettings: FC<MembersSettingsProps> = ({ statement }) => {
 				))}
 			</div>
 
-			<div className='title'>
+			<div className="title">
 				{t('Banned users')} ({bannedUser.length})
 			</div>
 			<div className={styles.membersBox}>

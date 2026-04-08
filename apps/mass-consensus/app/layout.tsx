@@ -1,4 +1,5 @@
 import { Metadata, Viewport } from 'next';
+import { Analytics } from '@vercel/analytics/react';
 import { cookies, headers } from 'next/headers';
 import {
   getTranslations,
@@ -6,13 +7,30 @@ import {
   NextTranslationProvider,
 } from '@freedi/shared-i18n/next';
 import { COOKIE_KEY } from '@freedi/shared-i18n';
+import { AuthProvider } from '@/components/auth/AuthProvider';
+import { GoogleAnalytics } from '@/components/analytics/GoogleAnalytics';
+import ConnectionLostHandler from '@/components/shared/ConnectionLostHandler';
+import { ReduxProvider } from '@/components/providers/ReduxProvider';
+import { ToastProvider } from '@/components/shared/Toast';
 import './globals.css';
+import '@/styles/atoms/_index.scss';
+import '@/styles/molecules/_index.scss';
+import '@/styles/organisms/_index.scss';
 
 export const metadata: Metadata = {
-  title: 'Freedi Discussion',
+  title: 'WizCol: Mass Consensus',
   description: 'Fast crowdsourced solution platform',
   icons: {
     icon: '/favicon.ico',
+    apple: '/icons/logo-192px.png',
+    other: [
+      { rel: 'icon', type: 'image/png', sizes: '48x48', url: '/icons/logo-48px.png' },
+      { rel: 'icon', type: 'image/png', sizes: '72x72', url: '/icons/logo-72px.png' },
+      { rel: 'icon', type: 'image/png', sizes: '96x96', url: '/icons/logo-96px.png' },
+      { rel: 'icon', type: 'image/png', sizes: '128x128', url: '/icons/logo-128px.png' },
+      { rel: 'icon', type: 'image/png', sizes: '192x192', url: '/icons/logo-192px.png' },
+      { rel: 'icon', type: 'image/png', sizes: '512x512', url: '/icons/logo-512px.png' },
+    ],
   },
 };
 
@@ -47,9 +65,18 @@ export default async function RootLayout({
           initialLanguage={language}
           initialDictionary={dictionary}
         >
-          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-          {children as any}
+          <ReduxProvider>
+            <AuthProvider>
+              <ToastProvider>
+                {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                {children as any}
+              </ToastProvider>
+            </AuthProvider>
+            <ConnectionLostHandler />
+          </ReduxProvider>
         </NextTranslationProvider>
+        <GoogleAnalytics />
+        <Analytics />
       </body>
     </html>
   );

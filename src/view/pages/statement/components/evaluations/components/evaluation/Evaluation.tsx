@@ -2,27 +2,31 @@ import { FC } from 'react';
 import EnhancedEvaluation from './enhancedEvaluation/EnhancedEvaluation';
 import SimpleEvaluation from './simpleEvaluation/SimpleEvaluation';
 import SingleLikeEvaluation from './singleLikeEvaluation/SingleLikeEvaluation';
-import { Statement } from 'delib-npm';
+import CommunityVoiceEvaluation from './communityVoiceEvaluation/CommunityVoiceEvaluation';
+import { Statement } from '@freedi/shared-types';
 import { useEvaluation } from './EvalautionMV';
+import { logError } from '@/utils/errorHandling';
+import { useIsProcessHalted } from '@/controllers/hooks/useIsProcessHalted';
 
 interface EvaluationProps {
 	statement?: Statement;
 }
 
 const Evaluation: FC<EvaluationProps> = ({ statement }) => {
-
 	const { parentStatement } = useEvaluation(statement);
+	const { isHalted } = useIsProcessHalted(parentStatement);
 
 	if (!statement) return null;
 	try {
-
 		if (!parentStatement) return null;
 
-		let shouldDisplayScore: boolean = !!parentStatement.statementSettings?.showEvaluation && window.innerWidth >= 768; //also checks for mobile
+		let shouldDisplayScore: boolean =
+			!!parentStatement.statementSettings?.showEvaluation && window.innerWidth >= 768; //also checks for mobile
 		if (statement.evaluation?.selectionFunction) shouldDisplayScore = false;
 
 		// Check if evaluation is enabled (defaults to true for backward compatibility)
-		const enableEvaluation = parentStatement.statementSettings?.enableEvaluation ?? true;
+		const enableEvaluation =
+			(parentStatement.statementSettings?.enableEvaluation ?? true) && !isHalted;
 
 		// Check for evaluationType first, then fall back to enhancedEvaluation for backward compatibility
 		const evaluationType = parentStatement.statementSettings?.evaluationType;
@@ -41,11 +45,10 @@ const Evaluation: FC<EvaluationProps> = ({ statement }) => {
 						/>
 					);
 				case 'range':
+					return <EnhancedEvaluation statement={statement} enableEvaluation={enableEvaluation} />;
+				case 'community-voice':
 					return (
-						<EnhancedEvaluation
-							statement={statement}
-							enableEvaluation={enableEvaluation}
-						/>
+						<CommunityVoiceEvaluation statement={statement} enableEvaluation={enableEvaluation} />
 					);
 				case 'like-dislike':
 				default:
@@ -61,12 +64,7 @@ const Evaluation: FC<EvaluationProps> = ({ statement }) => {
 
 		// Backward compatibility: if no evaluationType, use enhancedEvaluation boolean
 		if (enhancedEvaluation) {
-			return (
-				<EnhancedEvaluation
-					statement={statement}
-					enableEvaluation={enableEvaluation}
-				/>
-			);
+			return <EnhancedEvaluation statement={statement} enableEvaluation={enableEvaluation} />;
 		}
 
 		return (
@@ -77,7 +75,7 @@ const Evaluation: FC<EvaluationProps> = ({ statement }) => {
 			/>
 		);
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'evaluation.Evaluation.unknown' });
 
 		return null;
 	}

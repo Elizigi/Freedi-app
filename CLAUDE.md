@@ -43,7 +43,7 @@
   ```
 
 ### Design System Guidelines
-- **ALWAYS follow design system guidelines** from `docs/design-guide.md`
+- **ALWAYS follow design system guidelines** from `docs/guides/design-guide.md`
 - **All UI/UX decisions must align** with the design guide
 - **Color palette**: Use only CSS variables from the design system (e.g., `var(--btn-primary)`, `var(--agree)`)
   - Never hardcode colors: `#5f88e5` ❌, use `var(--btn-primary)` ✅
@@ -287,7 +287,7 @@ import { Button } from '@/view/components/atomic/atoms/Button';
 #### Resources
 - **Implementation Guide**: `ATOMIC-DESIGN-SYSTEM.md` - Complete system overview
 - **Component Docs**: `src/view/components/atomic/README.md` - Usage examples
-- **Design Guide**: `docs/design-guide.md` - Atomic Design & BEM sections
+- **Design Guide**: `docs/guides/design-guide.md` - Atomic Design & BEM sections
 - **Mixins**: `src/view/style/_mixins.scss` - All reusable patterns
 
 ## Commands
@@ -694,8 +694,8 @@ Never import upward (e.g., Controllers should NOT import from View)
 ### Documentation
 - **Code Quality Review**: `CODE_QUALITY_REVIEW.md`
 - **Implementation Guide**: `CODE_QUALITY_IMPROVEMENTS.md`
-- **Design Guide**: `docs/design-guide.md`
-- **Architecture**: `docs/FREEDI_ARCHITECTURE.md`
+- **Design Guide**: `docs/guides/design-guide.md`
+- **Architecture**: `docs/architecture/FREEDI_ARCHITECTURE.md`
 
 ---
 
@@ -763,6 +763,77 @@ Before submitting PR, verify:
 
 ---
 
+## 🌳 GIT WORKTREE SETUP
+
+When creating a new git worktree, follow ALL these steps to ensure it's fully functional:
+
+### Step 1: Create the Worktree
+```bash
+git worktree add /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name> -b <branch-name> main
+```
+
+### Step 2: Copy Environment Files
+Environment files are in `.gitignore` and must be copied manually:
+```bash
+# Core env files
+cp /Users/talyaron/Documents/Freedi-app/env/.env.dev /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/env/
+cp /Users/talyaron/Documents/Freedi-app/env/.env.prod /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/env/
+cp /Users/talyaron/Documents/Freedi-app/env/.env.test /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/env/
+cp /Users/talyaron/Documents/Freedi-app/env/.env.local /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/env/
+
+# Functions env
+cp /Users/talyaron/Documents/Freedi-app/functions/.env /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/functions/
+
+# Mass Consensus env files
+cp /Users/talyaron/Documents/Freedi-app/apps/mass-consensus/.env.local /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/apps/mass-consensus/
+cp /Users/talyaron/Documents/Freedi-app/apps/mass-consensus/.env /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/apps/mass-consensus/
+cp /Users/talyaron/Documents/Freedi-app/apps/mass-consensus/.env.staging /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/apps/mass-consensus/
+cp /Users/talyaron/Documents/Freedi-app/apps/mass-consensus/.env.vercel /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/apps/mass-consensus/
+
+# Sign env files
+cp /Users/talyaron/Documents/Freedi-app/apps/sign/.env.local /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/apps/sign/
+```
+
+### Step 3: Install Dependencies
+```bash
+# Root dependencies
+cd /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>
+npm install
+
+# Functions dependencies
+cd functions
+npm install
+
+# Mass Consensus app dependencies (if working on MC)
+cd /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/apps/mass-consensus
+npm install
+
+# Sign app dependencies (if working on Sign app)
+cd /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/apps/sign
+npm install
+```
+
+### Step 4: Build Shared Packages
+```bash
+# Build shared-types (required for main app and other apps)
+cd /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>/packages/shared-types
+npm run build
+```
+
+### Step 5: Verify Setup
+```bash
+cd /Users/talyaron/Documents/Freedi-app.worktrees/<worktree-name>
+npm run dev  # Should start without errors
+```
+
+### Important Notes
+- **Emulators**: Both worktrees share the same `firebase.json` ports. Only run emulators from ONE worktree at a time.
+- **Port conflicts**: If running apps from both worktrees, use different ports for the worktree version.
+- **List worktrees**: `git worktree list`
+- **Remove worktree**: `git worktree remove <path>`
+
+---
+
 ## 💡 TIPS FOR SUCCESS
 
 1. **Read the examples** - Check `CODE_QUALITY_IMPROVEMENTS.md` for detailed examples
@@ -770,4 +841,9 @@ Before submitting PR, verify:
 3. **Test as you go** - Don't leave testing until the end
 4. **Ask for help** - If patterns are unclear, check documentation or ask
 5. **Follow the checklist** - Use the code review checklist above
-- If I am writing mc or MC i mean the mass-conesunsus app undeerd apps/
+- If I am writing mc or MC i mean the mass-consensus app under apps/
+- when you create a new UI, use useTranslation() hook and the relevant files to translate to all available languages
+- **Deployment commands** (env setup is included in the scripts):
+  - Deploy functions to production: `npm run deploy:f:prod`
+  - Deploy functions to testing: `npm run deploy:f:test`
+- types are always saved in delib-npm for cross-apps/functions compatibility

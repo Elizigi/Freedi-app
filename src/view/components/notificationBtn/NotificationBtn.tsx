@@ -1,38 +1,52 @@
 import MailIcon from '@/assets/icons/mailIcon.svg?react';
-import { useCallback, useState } from 'react'
+import { useCallback, useState } from 'react';
 import InAppNotifications from '../inAppNotifications/InAppNotifications';
 import { useSelector, useDispatch } from 'react-redux';
 import { creatorSelector } from '@/redux/creator/creatorSlice';
-import { NotificationType } from 'delib-npm';
-import { inAppNotificationsSelector, markNotificationsAsViewedInList } from '@/redux/notificationsSlice/notificationsSlice';
+import { NotificationType } from '@freedi/shared-types';
+import {
+	inAppNotificationsSelector,
+	markNotificationsAsViewedInList,
+} from '@/redux/notificationsSlice/notificationsSlice';
 import styles from './NotificationBtn.module.scss';
 import useClickOutside from '@/controllers/hooks/useClickOutside';
 import { markNotificationsAsViewedInListDB } from '@/controllers/db/inAppNotifications/db_inAppNotifications';
+import { store } from '@/redux/store';
 import UnreadBadge from '../unreadBadge/UnreadBadge';
 
 const NotificationBtn = () => {
 	const creator = useSelector(creatorSelector);
 	const dispatch = useDispatch();
-	
+
 	// ✅ Get all notifications (for dropdown display)
-	const allNotificationsList: NotificationType[] = useSelector(inAppNotificationsSelector)
-		.filter(n => n.creatorId !== creator?.uid);
-	
+	const allNotificationsList: NotificationType[] = useSelector(inAppNotificationsSelector).filter(
+		(n) => n.creatorId !== creator?.uid,
+	);
+
 	// ✅ Count only UNREAD notifications for badge (with fallback for missing field)
-	const unreadCount = allNotificationsList.filter(n => !n.read || n.read === undefined).length;
-	
+	const unreadCount = allNotificationsList.filter((n) => !n.read || n.read === undefined).length;
+
 	const [showInAppNotifications, setShowInAppNotifications] = useState(false);
 
 	function handleShowInAppNotifications() {
+		// Prompt for browser notification permission only after explicit user intent.
+		if ('Notification' in window && Notification.permission === 'default') {
+			window.dispatchEvent(new Event('freedi:open-notification-prompt'));
+		}
+
 		setShowInAppNotifications(!showInAppNotifications);
-		
+
 		// ✅ Mark unread notifications as viewed after 2 seconds
 		if (!showInAppNotifications && unreadCount > 0) {
 			setTimeout(() => {
+				// Re-check auth state after the delay — user may have signed out
+				const currentUser = store.getState().creator.creator;
+				if (!currentUser) return;
+
 				const unreadIds = allNotificationsList
-					.filter(n => !n.read && !n.viewedInList)
-					.map(n => n.notificationId);
-				
+					.filter((n) => !n.read && !n.viewedInList)
+					.map((n) => n.notificationId);
+
 				if (unreadIds.length > 0) {
 					dispatch(markNotificationsAsViewedInList(unreadIds));
 					markNotificationsAsViewedInListDB(unreadIds);
@@ -44,12 +58,19 @@ const NotificationBtn = () => {
 	const handleClickOutside = useCallback(() => {
 		if (showInAppNotifications) setShowInAppNotifications(false);
 	}, [showInAppNotifications, setShowInAppNotifications]);
-	
+
 	const notifRef = useClickOutside(handleClickOutside);
 
 	return (
-		<button onClick={handleShowInAppNotifications} className={styles.notificationBtn}>
-			{/* ✅ Show badge only if there are UNREAD notifications */}
+		<div
+			onClick={handleShowInAppNotifications}
+			className={styles.notificationBtn}
+			role="button"
+			tabIndex={0}
+			onKeyDown={(e) => {
+				if (e.key === 'Enter' || e.key === ' ') handleShowInAppNotifications();
+			}}
+		>
 			{unreadCount > 0 && (
 				<UnreadBadge
 					count={unreadCount}
@@ -58,12 +79,17 @@ const NotificationBtn = () => {
 				/>
 			)}
 			<MailIcon />
-			{showInAppNotifications && <div ref={(node) => {
-				if (notifRef) notifRef.current = node;}}>
+			{showInAppNotifications && (
+				<div
+					ref={(node) => {
+						if (notifRef) notifRef.current = node;
+					}}
+				>
 					<InAppNotifications />
-				</div>}
-		</button>
-	)
-}
+				</div>
+			)}
+		</div>
+	);
+};
 
-export default NotificationBtn
+export default NotificationBtn;

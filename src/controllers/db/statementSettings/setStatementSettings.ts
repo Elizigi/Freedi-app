@@ -1,12 +1,13 @@
-import { doc, setDoc } from 'firebase/firestore';
-import { FireStore } from '../config';
+import { setDoc } from 'firebase/firestore';
 import {
 	StatementSettings,
 	QuestionSettings,
 	Statement,
 	Collections,
 	QuestionType,
-} from 'delib-npm';
+} from '@freedi/shared-types';
+import { createStatementRef, createDocRef } from '@/utils/firebaseUtils';
+import { logError } from '@/utils/errorHandling';
 
 interface SetStatementSettingsProps {
 	statement: Statement;
@@ -22,11 +23,7 @@ export function setStatementSettingToDB({
 	settingsSection,
 }: SetStatementSettingsProps) {
 	try {
-		const statementSettingsRef = doc(
-			FireStore,
-			Collections.statements,
-			statement.statementId
-		);
+		const statementSettingsRef = createStatementRef(statement.statementId);
 		setDoc(
 			statementSettingsRef,
 			{
@@ -34,10 +31,12 @@ export function setStatementSettingToDB({
 					[property]: newValue,
 				},
 			},
-			{ merge: true }
+			{ merge: true },
 		);
 	} catch (error) {
-		console.error(error);
+		logError(error, {
+			operation: 'statementSettings.setStatementSettings.setStatementSettingToDB',
+		});
 	}
 }
 
@@ -46,16 +45,9 @@ interface SetQuestionTypeToDB {
 	questionType: QuestionType;
 }
 
-export function setQuestionTypeToDB({
-	statement,
-	questionType,
-}: SetQuestionTypeToDB) {
+export function setQuestionTypeToDB({ statement, questionType }: SetQuestionTypeToDB) {
 	try {
-		const statementSettingsRef = doc(
-			FireStore,
-			Collections.statements,
-			statement.statementId
-		);
+		const statementSettingsRef = createStatementRef(statement.statementId);
 		setDoc(
 			statementSettingsRef,
 			{
@@ -63,10 +55,10 @@ export function setQuestionTypeToDB({
 					questionType: questionType,
 				},
 			},
-			{ merge: true }
+			{ merge: true },
 		);
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'statementSettings.setStatementSettings.setQuestionTypeToDB' });
 	}
 }
 
@@ -78,10 +70,9 @@ export function updateQuestionType({
 	newValue: QuestionType;
 }) {
 	try {
-		const statementSettingsRef = doc(
-			FireStore,
+		const statementSettingsRef = createDocRef(
 			Collections.statementsSettings,
-			statement.statementId
+			statement.statementId,
 		);
 		setDoc(
 			statementSettingsRef,
@@ -90,9 +81,9 @@ export function updateQuestionType({
 					questionType: newValue,
 				},
 			},
-			{ merge: true }
+			{ merge: true },
 		);
 	} catch (error) {
-		console.error(error);
+		logError(error, { operation: 'statementSettings.setStatementSettings.updateQuestionType' });
 	}
 }

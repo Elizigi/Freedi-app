@@ -1,7 +1,22 @@
 import { createSlice, PayloadAction, createSelector } from '@reduxjs/toolkit';
-import { RootState } from '../types';
-import { Statement, StatementSubscription, SelectionFunction, StatementType, updateArray, ResultsSettings } from 'delib-npm';
+import {
+	Statement,
+	StatementSubscription,
+	SimpleStatement,
+	SelectionFunction,
+	StatementType,
+	updateArray,
+	ResultsSettings,
+} from '@freedi/shared-types';
 import { logError } from '@/utils/errorHandling';
+import { REDUX } from '@/constants/common';
+import {
+	createStatementByIdSelector,
+	createStatementsByParentSelector,
+	createStatementsByParentAndTypeSelector,
+	createFilteredStatementsSelector,
+	sortByCreatedAt,
+} from '../utils/selectorFactories';
 
 export enum StatementScreen {
 	chat = 'chat',
@@ -15,6 +30,7 @@ interface StatementsState {
 	statementSubscriptionLastUpdate: number;
 	statementMembership: StatementSubscription[];
 	screen: StatementScreen;
+	bookmarkedIds: Record<string, boolean>;
 }
 
 interface StatementOrder {
@@ -34,9 +50,46 @@ const initialState: StatementsState = {
 	statementSubscriptionLastUpdate: 0,
 	statementMembership: [],
 	screen: StatementScreen.chat,
+	bookmarkedIds: {},
 };
 
-export const statementsSlicer = createSlice({
+/**
+ * Prune oldest statements when state exceeds MAX_STATEMENTS cap.
+ * Keeps statements belonging to the most recently updated topParentIds.
+ */
+function pruneStatements(statements: Statement[]): Statement[] {
+	if (statements.length <= REDUX.MAX_STATEMENTS) return statements;
+
+	// Find the most recent topParentIds by their latest lastUpdate
+	const topParentLastUpdate = new Map<string, number>();
+	for (const stmt of statements) {
+		const topId = stmt.topParentId || stmt.parentId || stmt.statementId;
+		const current = topParentLastUpdate.get(topId) || 0;
+		if (stmt.lastUpdate > current) {
+			topParentLastUpdate.set(topId, stmt.lastUpdate);
+		}
+	}
+
+	// Sort topParentIds by most recently updated first
+	const sortedTopParents = [...topParentLastUpdate.entries()]
+		.sort((a, b) => b[1] - a[1])
+		.map(([id]) => id);
+
+	// Keep adding entire trees until we hit the cap
+	const keepSet = new Set<string>();
+	for (const topId of sortedTopParents) {
+		if (keepSet.size >= REDUX.MAX_STATEMENTS) break;
+		keepSet.add(topId);
+	}
+
+	return statements.filter((stmt) => {
+		const topId = stmt.topParentId || stmt.parentId || stmt.statementId;
+
+		return keepSet.has(topId);
+	});
+}
+
+export const statementsSlice = createSlice({
 	name: 'statements',
 	initialState,
 	reducers: {
@@ -45,26 +98,20 @@ export const statementsSlicer = createSlice({
 				const newStatement = { ...action.payload };
 
 				//for legacy statements - can be deleted after all statements are updated or at least after 1 feb 24.
-				if (!Array.isArray(newStatement.results))
-					newStatement.results = [];
+				if (!Array.isArray(newStatement.results)) newStatement.results = [];
 
 				newStatement.order = 0;
 
 				// updateArray from delib-npm handles deduplication efficiently
-				state.statements = updateArray(
-					state.statements,
-					newStatement,
-					'statementId'
-				);
+				state.statements = updateArray(state.statements, newStatement, 'statementId');
 
 				//update last update if bigger than current
-				if (
-					newStatement.lastUpdate >
-					state.statementSubscriptionLastUpdate
-				) {
-					state.statementSubscriptionLastUpdate =
-						newStatement.lastUpdate;
+				if (newStatement.lastUpdate > state.statementSubscriptionLastUpdate) {
+					state.statementSubscriptionLastUpdate = newStatement.lastUpdate;
 				}
+
+				// Prune if over cap
+				state.statements = pruneStatements(state.statements);
 			} catch (error) {
 				logError(error, {
 					operation: 'statementsSlice.setStatement',
@@ -77,32 +124,26 @@ export const statementsSlicer = createSlice({
 			action: PayloadAction<{
 				statements: Statement[];
 				selectionFunction: SelectionFunction;
-			}>
+			}>,
 		) => {
-			const statements = action.payload.statements.map(
-				(st: Statement) => ({
-					...st,
-					evaluation: {
-						sumEvaluations: st.evaluation?.sumEvaluations ?? 0,
-						agreement: st.evaluation?.agreement ?? 0,
-						numberOfEvaluators: st.evaluation?.numberOfEvaluators ?? 0,
-						sumPro: st.evaluation?.sumPro ?? 0,
-						sumCon: st.evaluation?.sumCon ?? 0,
-						sumSquaredEvaluations: st.evaluation?.sumSquaredEvaluations ?? 0,
-						averageEvaluation: st.evaluation?.averageEvaluation ?? 0,
-						viewed: st.evaluation?.viewed ?? 0,
-						evaluationRandomNumber: st.evaluation?.evaluationRandomNumber,
-						selectionFunction: action.payload.selectionFunction,
-					},
-				})
-			);
+			const statements = action.payload.statements.map((st: Statement) => ({
+				...st,
+				evaluation: {
+					sumEvaluations: st.evaluation?.sumEvaluations ?? 0,
+					agreement: st.evaluation?.agreement ?? 0,
+					numberOfEvaluators: st.evaluation?.numberOfEvaluators ?? 0,
+					sumPro: st.evaluation?.sumPro ?? 0,
+					sumCon: st.evaluation?.sumCon ?? 0,
+					sumSquaredEvaluations: st.evaluation?.sumSquaredEvaluations ?? 0,
+					averageEvaluation: st.evaluation?.averageEvaluation ?? 0,
+					viewed: st.evaluation?.viewed ?? 0,
+					evaluationRandomNumber: st.evaluation?.evaluationRandomNumber,
+					selectionFunction: action.payload.selectionFunction,
+				},
+			}));
 
 			const previousSelectedStatements: Statement[] = state.statements
-				.filter(
-					(st) =>
-						st.evaluation?.selectionFunction ===
-						action.payload.selectionFunction
-				)
+				.filter((st) => st.evaluation?.selectionFunction === action.payload.selectionFunction)
 				.map((st) => ({
 					...st,
 					evaluation: {
@@ -112,18 +153,10 @@ export const statementsSlicer = createSlice({
 				}));
 
 			previousSelectedStatements.forEach((st) => {
-				state.statements = updateArray(
-					state.statements,
-					st,
-					'statementId'
-				);
+				state.statements = updateArray(state.statements, st, 'statementId');
 			});
 			statements.forEach((st) => {
-				state.statements = updateArray(
-					state.statements,
-					st,
-					'statementId'
-				);
+				state.statements = updateArray(state.statements, st, 'statementId');
 			});
 		},
 		setStatements: (state, action: PayloadAction<Statement[]>) => {
@@ -131,12 +164,11 @@ export const statementsSlicer = createSlice({
 				const statements = action.payload;
 
 				statements.forEach((statement) => {
-					state.statements = updateArray(
-						state.statements,
-						statement,
-						'statementId'
-					);
+					state.statements = updateArray(state.statements, statement, 'statementId');
 				});
+
+				// Prune if over cap
+				state.statements = pruneStatements(state.statements);
 			} catch (error) {
 				logError(error, {
 					operation: 'statementsSlice.setStatements',
@@ -149,7 +181,7 @@ export const statementsSlicer = createSlice({
 				const statementId = action.payload;
 
 				state.statements = state.statements.filter(
-					(statement) => statement.statementId !== statementId
+					(statement) => statement.statementId !== statementId,
 				);
 			} catch (error) {
 				logError(error, {
@@ -158,10 +190,7 @@ export const statementsSlicer = createSlice({
 				});
 			}
 		},
-		setStatementSubscription: (
-			state,
-			action: PayloadAction<StatementSubscription>
-		) => {
+		setStatementSubscription: (state, action: PayloadAction<StatementSubscription>) => {
 			try {
 				const newStatementSubscription = action.payload;
 
@@ -169,16 +198,17 @@ export const statementsSlicer = createSlice({
 				state.statementSubscription = updateArray(
 					state.statementSubscription,
 					newStatementSubscription,
-					'statementId'
+					'statementId',
 				);
 
 				//update last update if bigger than current
-				if (
-					newStatementSubscription.lastUpdate >
-					state.statementSubscriptionLastUpdate
-				) {
-					state.statementSubscriptionLastUpdate =
-						newStatementSubscription.lastUpdate;
+				if (newStatementSubscription.lastUpdate > state.statementSubscriptionLastUpdate) {
+					state.statementSubscriptionLastUpdate = newStatementSubscription.lastUpdate;
+				}
+
+				// Hydrate bookmark state from subscription
+				if (newStatementSubscription.isBookmarked) {
+					state.bookmarkedIds[newStatementSubscription.statementId] = true;
 				}
 			} catch (error) {
 				logError(error, {
@@ -187,10 +217,7 @@ export const statementsSlicer = createSlice({
 				});
 			}
 		},
-		setStatementsSubscription: (
-			state,
-			action: PayloadAction<StatementSubscription[]>
-		) => {
+		setStatementsSubscription: (state, action: PayloadAction<StatementSubscription[]>) => {
 			try {
 				const newStatements = action.payload;
 
@@ -198,8 +225,13 @@ export const statementsSlicer = createSlice({
 					state.statementSubscription = updateArray(
 						state.statementSubscription,
 						statement,
-						'statementsSubscribeId'
+						'statementsSubscribeId',
 					);
+
+					// Hydrate bookmark state from subscription
+					if (statement.isBookmarked) {
+						state.bookmarkedIds[statement.statementId] = true;
+					}
 				});
 			} catch (error) {
 				logError(error, {
@@ -212,10 +244,9 @@ export const statementsSlicer = createSlice({
 			try {
 				const statementId = action.payload;
 
-				state.statementSubscription =
-					state.statementSubscription.filter(
-						(statement) => statement.statementId !== statementId
-					);
+				state.statementSubscription = state.statementSubscription.filter(
+					(statement) => statement.statementId !== statementId,
+				);
 			} catch (error) {
 				logError(error, {
 					operation: 'statementsSlice.deleteSubscribedStatement',
@@ -227,7 +258,7 @@ export const statementsSlicer = createSlice({
 			try {
 				const { statementId, order } = action.payload;
 				const statement = state.statements.find(
-					(statement) => statement.statementId === statementId
+					(statement) => statement.statementId === statementId,
 				);
 				if (statement) statement.order = order;
 			} catch (error) {
@@ -243,12 +274,12 @@ export const statementsSlicer = createSlice({
 			action: PayloadAction<{
 				statementId: string;
 				height: number | undefined;
-			}>
+			}>,
 		) => {
 			try {
 				const { statementId, height } = action.payload;
 				const statement = state.statements.find(
-					(statement) => statement.statementId === statementId
+					(statement) => statement.statementId === statementId,
 				);
 				if (statement) statement.elementHight = height;
 			} catch (error) {
@@ -258,17 +289,13 @@ export const statementsSlicer = createSlice({
 				});
 			}
 		},
-		updateStatementTop: (
-			state,
-			action: PayloadAction<{ statementId: string; top: number }[]>
-		) => {
+		updateStatementTop: (state, action: PayloadAction<{ statementId: string; top: number }[]>) => {
 			try {
 				const updates = action.payload;
 				updates.forEach((update) => {
 					try {
 						const statement = state.statements.find(
-							(statement) =>
-								statement.statementId === update.statementId
+							(statement) => statement.statementId === update.statementId,
 						);
 						if (statement) {
 							statement.top = update.top;
@@ -303,17 +330,14 @@ export const statementsSlicer = createSlice({
 			}
 		},
 
-		setMembership: (
-			state,
-			action: PayloadAction<StatementSubscription>
-		) => {
+		setMembership: (state, action: PayloadAction<StatementSubscription>) => {
 			try {
 				const newMembership = action.payload;
 
 				state.statementMembership = updateArray(
 					state.statementMembership,
 					newMembership,
-					'statementsSubscribeId'
+					'statementsSubscribeId',
 				);
 			} catch (error) {
 				logError(error, {
@@ -326,9 +350,7 @@ export const statementsSlicer = createSlice({
 			try {
 				const statementsSubscribeId = action.payload;
 				state.statementMembership = state.statementMembership.filter(
-					(statement) =>
-						statement.statementsSubscribeId !==
-						statementsSubscribeId
+					(statement) => statement.statementsSubscribeId !== statementsSubscribeId,
 				);
 			} catch (error) {
 				logError(error, {
@@ -343,14 +365,12 @@ export const statementsSlicer = createSlice({
 			state.statementSubscriptionLastUpdate = 0;
 			state.statementMembership = [];
 			state.screen = StatementScreen.chat;
+			state.bookmarkedIds = {};
 		},
-		setCurrentMultiStepOptions: (
-			state,
-			action: PayloadAction<Statement[]>
-		) => {
+		setCurrentMultiStepOptions: (state, action: PayloadAction<Statement[]>) => {
 			try {
 				const previousInMultiStageOptions = state.statements.filter(
-					(statement) => statement.isInMultiStage
+					(statement) => statement.isInMultiStage,
 				);
 				previousInMultiStageOptions.forEach((statement) => {
 					statement.isInMultiStage = false;
@@ -359,11 +379,7 @@ export const statementsSlicer = createSlice({
 				const newStatements = action.payload;
 				newStatements.forEach((statement) => {
 					statement.isInMultiStage = true;
-					state.statements = updateArray(
-						state.statements,
-						statement,
-						'statementId'
-					);
+					state.statements = updateArray(state.statements, statement, 'statementId');
 				});
 			} catch (error) {
 				logError(error, {
@@ -374,13 +390,28 @@ export const statementsSlicer = createSlice({
 		},
 		updateStoreResultsSettings: (state, action: PayloadAction<UpdateResultsSettings>) => {
 			const { statementId, resultsSettings } = action.payload;
-			const statement = state.statements.find(
-				(statement) => statement.statementId === statementId
-			);
+			const statement = state.statements.find((statement) => statement.statementId === statementId);
 			if (statement) {
 				statement.resultsSettings = resultsSettings;
 			}
-		}
+		},
+		setBookmark: (state, action: PayloadAction<{ statementId: string; isBookmarked: boolean }>) => {
+			const { statementId, isBookmarked } = action.payload;
+			if (isBookmarked) {
+				state.bookmarkedIds[statementId] = true;
+			} else {
+				delete state.bookmarkedIds[statementId];
+			}
+		},
+		setBookmarks: (state, action: PayloadAction<Record<string, boolean>>) => {
+			for (const [statementId, isBookmarked] of Object.entries(action.payload)) {
+				if (isBookmarked) {
+					state.bookmarkedIds[statementId] = true;
+				} else {
+					delete state.bookmarkedIds[statementId];
+				}
+			}
+		},
 	},
 });
 
@@ -400,180 +431,200 @@ export const {
 	resetStatements,
 	setCurrentMultiStepOptions,
 	setMassConsensusStatements,
-	updateStoreResultsSettings
-} = statementsSlicer.actions;
+	updateStoreResultsSettings,
+	setBookmark,
+	setBookmarks,
+} = statementsSlice.actions;
 
 // statements
-export const totalMessageBoxesSelector = (state: RootState) =>
+export const totalMessageBoxesSelector = (state: { statements: StatementsState }) =>
 	state.statements.statements.length;
 
-export const screenSelector = (state: RootState) => state.statements.screen;
+export const screenSelector = (state: { statements: StatementsState }) => state.statements.screen;
 
 export const statementSelectorById =
-	(statementId: string | undefined) => (state: RootState) => {
-		return state.statements.statements.find(
-			(statement) => statement.statementId === statementId
-		);
+	(statementId: string | undefined) => (state: { statements: StatementsState }) => {
+		return state.statements.statements.find((statement) => statement.statementId === statementId);
 	};
 
-export const statementsSelector = (state: RootState) =>
+export const statementsSelector = (state: { statements: StatementsState }) =>
 	state.statements.statements;
 
-export const subStatementsByTopParentIdMemo = (
-	statementId: string | undefined
-) =>
-	createSelector([statementsSelector], (statements) =>
-		statements.filter(
-			(statement) =>
-				statement.topParentId === statementId &&
-				statement.statementType !== StatementType.document
-		)
+// Memoized selector for statement by ID - use when you need to subscribe to updates
+export const makeStatementByIdSelector = createStatementByIdSelector(statementsSelector);
+
+const selectFilteredStatements = createFilteredStatementsSelector(statementsSelector);
+export const subStatementsByTopParentIdMemo = (statementId: string | undefined) =>
+	selectFilteredStatements(
+		(statement) =>
+			statement.topParentId === statementId && statement.statementType !== StatementType.document,
 	);
 
 export const statementDescendantsSelector = (statementId: string) =>
 	createSelector(
-		(state: RootState) => state.statements.statements,
-		(statements) =>
-			statements.filter((statement) =>
-				statement.parents?.includes(statementId)
-			)
+		(state: { statements: StatementsState }) => state.statements.statements,
+		(statements) => statements.filter((statement) => statement.parents?.includes(statementId)),
 	);
 
 export const statementsRoomSolutions =
-	(statementId: string | undefined) => (state: RootState) =>
+	(statementId: string | undefined) => (state: { statements: StatementsState }) =>
 		state.statements.statements
 			.filter(
 				(statement) =>
-					statement.parentId === statementId &&
-					statement.statementType === StatementType.option
+					statement.parentId === statementId && statement.statementType === StatementType.option,
 			)
 			.sort((a, b) => a.createdAt - b.createdAt);
+
+/**
+ * Gets the latest child-activity timestamp for a subscription.
+ * Takes the maximum across all available timestamp sources:
+ * - Statement's lastChildUpdate (from full Statement in Redux)
+ * - Most recent timestamp from lastSubStatements
+ * - Subscription's lastUpdate
+ */
+function getLatestChildActivity(
+	sub: StatementSubscription,
+	statementsMap: Map<string, Statement>,
+): number {
+	let latest = sub.lastUpdate || 0;
+
+	const statement = statementsMap.get(sub.statementId);
+	if (statement?.lastChildUpdate) {
+		latest = Math.max(latest, statement.lastChildUpdate);
+	}
+
+	const subStatements: SimpleStatement[] =
+		statement?.lastSubStatements || sub.lastSubStatements || [];
+	for (const s of subStatements) {
+		latest = Math.max(latest, s.createdAt || 0, s.lastUpdate || 0);
+	}
+
+	return latest;
+}
 
 export const statementsSubscriptionsSelector = createSelector(
-	(state: RootState) => state.statements.statementSubscription,
-	(statementSubscription) => 
-		[...statementSubscription].sort((a, b) => b.lastUpdate - a.lastUpdate)
-);
-export const statementSelector =
-	(statementId: string | undefined) => (state: RootState) =>
-		state.statements.statements.find(
-			(statement) => statement.statementId === statementId
+	[
+		(state: { statements: StatementsState }) => state.statements.statementSubscription,
+		(state: { statements: StatementsState }) => state.statements.statements,
+	],
+	(statementSubscription, statements) => {
+		const statementsMap = new Map(statements.map((s) => [s.statementId, s]));
+
+		return [...statementSubscription].sort(
+			(a, b) => getLatestChildActivity(b, statementsMap) - getLatestChildActivity(a, statementsMap),
 		);
+	},
+);
+
+export const statementSelector =
+	(statementId: string | undefined) => (state: { statements: StatementsState }) =>
+		state.statements.statements.find((statement) => statement.statementId === statementId);
 
 export const topSubscriptionsSelector = createSelector(
-	(state: RootState) => state.statements.statementSubscription,
-	(statementSubscription) =>
-		statementSubscription
-			.filter(
-				(sub: StatementSubscription) => sub.statement.parentId === 'top'
-			)
-			.sort((a, b) => b.lastUpdate - a.lastUpdate)
+	[
+		(state: { statements: StatementsState }) => state.statements.statementSubscription,
+		(state: { statements: StatementsState }) => state.statements.statements,
+	],
+	(statementSubscription, statements) => {
+		const statementsMap = new Map(statements.map((s) => [s.statementId, s]));
+
+		return statementSubscription
+			.filter((sub: StatementSubscription) => sub.statement.parentId === 'top')
+			.sort(
+				(a, b) =>
+					getLatestChildActivity(b, statementsMap) - getLatestChildActivity(a, statementsMap),
+			);
+	},
 );
 
-const selectStatements = (state: RootState) => state.statements.statements;
+const selectStatements = (state: { statements: StatementsState }) => state.statements.statements;
 
-export const statementSubsSelector = (statementId: string | undefined) =>
-	createSelector([selectStatements], (statements) =>
-		statements
-			.filter((statementSub) => statementSub.parentId === statementId)
-			.sort((a, b) => a.createdAt - b.createdAt)
-			.map((statement) => ({ ...statement }))
-	);
+// Memoized selector - removed .map() that was breaking memoization
+const selectStatementsByParent = createStatementsByParentSelector(selectStatements);
+export const statementSubsSelector = selectStatementsByParent;
 
+// Memoized selector - removed .map() that was breaking memoization
+const selectStatementsByParentAndType = createStatementsByParentAndTypeSelector(statementsSelector);
 export const statementOptionsSelector = (statementId: string | undefined) =>
-	createSelector([statementsSelector], (statements) => {
-		const subStatements = statements
-			.filter(
-				(statementSub) =>
-					statementSub.parentId === statementId &&
-					statementSub.statementType === StatementType.option
-			)
-			.sort((a, b) => a.createdAt - b.createdAt)
-			.map((statement) => ({ ...statement }));
+	selectStatementsByParentAndType(statementId, StatementType.option);
 
-		return subStatements;
-	});
+export const questionsSelector = (statementId: string | undefined) =>
+	selectStatementsByParentAndType(statementId, StatementType.question);
 
-export const questionsSelector =
-	(statementId: string | undefined) => (state: RootState) =>
-		state.statements.statements
-			.filter(
-				(statement) =>
-					statement.parentId === statementId &&
-					statement.statementType === StatementType.question
-			)
-			.sort((a, b) => a.createdAt - b.createdAt);
+// Memoized map for O(1) subscription lookups
+const selectSubscriptionMap = createSelector(
+	[(state: { statements: StatementsState }) => state.statements.statementSubscription],
+	(subscriptions) => {
+		const map = new Map<string, StatementSubscription>();
+		for (const sub of subscriptions) {
+			map.set(sub.statementId, sub);
+		}
+
+		return map;
+	},
+);
 
 export const statementSubscriptionSelector =
-	(statementId: string | undefined) => (state: RootState) =>
-		state.statements.statementSubscription.find(
-			(statementSub) => statementSub.statementId === statementId
-		) || undefined;
+	(statementId: string | undefined) => (state: { statements: StatementsState }) =>
+		statementId ? selectSubscriptionMap(state).get(statementId) : undefined;
 export const statementOrderSelector =
-	(statementId: string | undefined) => (state: RootState) =>
-		state.statements.statements.find(
-			(statement) => statement.statementId === statementId
-		)?.order || 0;
+	(statementId: string | undefined) => (state: { statements: StatementsState }) =>
+		state.statements.statements.find((statement) => statement.statementId === statementId)?.order ||
+		0;
 export const statementElementHightSelector =
-	(statementId: string | undefined) => (state: RootState) =>
-		state.statements.statements.find(
-			(statement) => statement.statementId === statementId
-		)?.elementHight || 0;
-export const lastUpdateStatementSubscriptionSelector = (state: RootState) =>
+	(statementId: string | undefined) => (state: { statements: StatementsState }) =>
+		state.statements.statements.find((statement) => statement.statementId === statementId)
+			?.elementHight || 0;
+export const lastUpdateStatementSubscriptionSelector = (state: { statements: StatementsState }) =>
 	state.statements.statementSubscriptionLastUpdate;
 
 // Membership
 export const statementMembershipSelector =
-	(statementId: string | undefined) => (state: RootState) =>
+	(statementId: string | undefined) => (state: { statements: StatementsState }) =>
 		state.statements.statementMembership.filter(
-			(statement: StatementSubscription) =>
-				statement.statementId === statementId
+			(statement: StatementSubscription) => statement.statementId === statementId,
 		);
 
 export const hasTokenSelector =
-	(token: string, statementId: string | undefined) => (state: RootState) => {
+	(token: string, statementId: string | undefined) => (state: { statements: StatementsState }) => {
 		const subscription = state.statements.statementSubscription.find(
-			(statement) => statement.statementId === statementId
+			(statement) => statement.statementId === statementId,
 		);
 
 		return subscription?.tokens?.includes(token) || false;
 	};
 
+// Bookmark selectors
+export const bookmarkedStatementIdsSelector = createSelector(
+	[(state: { statements: StatementsState }) => state.statements.bookmarkedIds],
+	(bookmarkedIds) => {
+		return new Set<string>(Object.keys(bookmarkedIds));
+	},
+);
+
+export const isStatementBookmarkedSelector =
+	(statementId: string) => (state: { statements: StatementsState }) =>
+		state.statements.bookmarkedIds[statementId] === true;
+
 export const subscriptionParentStatementSelector = (parentId: string) =>
 	createSelector(
-		(state: RootState) => state.statements.statementSubscription,
+		(state: { statements: StatementsState }) => state.statements.statementSubscription,
 		(statementSubscription) =>
-			statementSubscription.filter(
-				(sub) => sub.statement.topParentId === parentId
-			)
+			statementSubscription.filter((sub) => sub.statement.topParentId === parentId),
 	);
 
-export const statementsOfMultiStepSelectorByStatementId = (
-	statementId: string | undefined
-) =>
-	createSelector(
-		(state: RootState) => state.statements.statements,
-		(statements) =>
-			statements.filter(
-				(st) => st.isInMultiStage && st.parentId === statementId
-			)
+const selectMultiStepFiltered = createFilteredStatementsSelector(statementsSelector);
+export const statementsOfMultiStepSelectorByStatementId = (statementId: string | undefined) =>
+	selectMultiStepFiltered((st) => st.isInMultiStage === true && st.parentId === statementId);
+
+const selectUserSuggestionsFiltered = createFilteredStatementsSelector(statementsSelector);
+export const userSuggestionsSelector = (parentId: string | undefined, userId: string | undefined) =>
+	selectUserSuggestionsFiltered(
+		(statement) =>
+			statement.parentId === parentId &&
+			statement.creatorId === userId &&
+			statement.statementType === StatementType.option,
+		sortByCreatedAt,
 	);
 
-export const userSuggestionsSelector = (
-	parentId: string | undefined,
-	userId: string | undefined
-) =>
-	createSelector(
-		(state: RootState) => state.statements.statements,
-		(statements) =>
-			statements
-				.filter(
-					(statement) =>
-						statement.parentId === parentId &&
-						statement.creatorId === userId &&
-						statement.statementType === StatementType.option
-				)
-				.sort((a, b) => a.createdAt - b.createdAt)
-	);
-
-export default statementsSlicer.reducer;
+export default statementsSlice.reducer;

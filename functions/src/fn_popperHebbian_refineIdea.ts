@@ -1,5 +1,7 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { getGeminiModel, geminiApiKey } from './config/gemini';
+import { getGeminiModel } from './config/gemini';
+import { functionConfig } from '@freedi/shared-types';
+import { logError } from './utils/errorHandling';
 
 interface RefinementMessage {
 	messageId: string;
@@ -25,34 +27,35 @@ interface RefineIdeaResponse {
 }
 
 const LANGUAGE_NAMES: Record<string, string> = {
-	'he': 'Hebrew',
-	'ar': 'Arabic',
-	'en': 'English',
-	'es': 'Spanish',
-	'fr': 'French',
-	'de': 'German',
-	'nl': 'Dutch'
+	he: 'Hebrew',
+	ar: 'Arabic',
+	en: 'English',
+	es: 'Spanish',
+	fr: 'French',
+	de: 'German',
+	nl: 'Dutch',
 };
 
 export const refineIdea = onCall<RefineIdeaRequest>(
-	{ secrets: [geminiApiKey] },
+	{ region: functionConfig.region },
 	async (request): Promise<RefineIdeaResponse> => {
 		const {
 			userResponse,
 			conversationHistory,
 			originalIdea,
 			currentRefinedIdea,
-			language = 'en'
+			language = 'en',
 		} = request.data;
 
 		const conversationContext = conversationHistory
-			.map(msg => `${msg.role}: ${msg.content}`)
+			.map((msg) => `${msg.role}: ${msg.content}`)
 			.join('\n');
 
 		const languageName = LANGUAGE_NAMES[language] || 'English';
-		const languageInstruction = language !== 'en'
-			? `\n\nIMPORTANT: All your responses (aiMessage, refinedIdea, etc.) must be in ${languageName}. Conduct the entire dialogue in ${languageName}.`
-			: '';
+		const languageInstruction =
+			language !== 'en'
+				? `\n\nIMPORTANT: All your responses (aiMessage, refinedIdea, etc.) must be in ${languageName}. Conduct the entire dialogue in ${languageName}.`
+				: '';
 
 		const prompt = `You are helping make answers clear and specific.${languageInstruction}
 
@@ -138,13 +141,13 @@ Think independently and ask what YOU think is most important to clarify.`;
 
 			// Configure generation settings
 			const generationConfig = {
-				temperature: 0.7,  // More flexibility for natural conversation
-				responseMimeType: "application/json",  // Force JSON output
+				temperature: 0.7, // More flexibility for natural conversation
+				responseMimeType: 'application/json', // Force JSON output
 			};
 
 			const result = await model.generateContent({
-				contents: [{ role: "user", parts: [{ text: prompt }] }],
-				generationConfig
+				contents: [{ role: 'user', parts: [{ text: prompt }] }],
+				generationConfig,
 			});
 
 			const response = await result.response;
@@ -154,16 +157,18 @@ Think independently and ask what YOU think is most important to clarify.`;
 			let refinementResult: RefineIdeaResponse;
 			try {
 				refinementResult = JSON.parse(text);
-			} catch {
-				console.error('Failed to parse JSON response:', text);
+			} catch (parseError) {
+				logError(parseError, {
+					operation: 'popperHebbian.refineIdea.parseJSON',
+					metadata: { responseLength: text.length },
+				});
 				throw new Error('Invalid JSON response from AI');
 			}
 
 			return refinementResult;
-
 		} catch (error) {
-			console.error('Error refining idea:', error);
+			logError(error, { operation: 'popperHebbian.refineIdea' });
 			throw new HttpsError('internal', 'Failed to refine idea');
 		}
-	}
+	},
 );

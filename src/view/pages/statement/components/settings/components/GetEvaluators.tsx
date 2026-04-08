@@ -1,7 +1,7 @@
 import React, { FC } from 'react';
 import { handleGetEvaluators } from '../statementSettingsCont';
 import MembersChipsList from './membership/membersChipsList/MembersChipList';
-import { Evaluation, User } from 'delib-npm';
+import { Evaluation, User } from '@freedi/shared-types';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
 
 interface GetEvaluatorsProps {
@@ -22,17 +22,11 @@ const GetEvaluators: FC<GetEvaluatorsProps> = ({ statementId }) => {
 		}
 	};
 
-	const members = evaluators.flatMap(
-		(evaluator) => evaluator.evaluator as User
-	);
+	const members = evaluators.flatMap((evaluator) => evaluator.evaluator as User);
 
 	return (
 		<>
-			<button
-				type='button'
-				className='evaluators-button form-button'
-				onClick={getEvaluations}
-			>
+			<button type="button" className="evaluators-button form-button" onClick={getEvaluations}>
 				{t('Get Evaluators')}
 			</button>
 
@@ -46,9 +40,7 @@ const GetEvaluators: FC<GetEvaluatorsProps> = ({ statementId }) => {
 							<MembersChipsList members={members} />
 						</>
 					)}
-					{members.length === 0 && (
-						<div>{t('No evaluators found')}</div>
-					)}
+					{members.length === 0 && <div>{t('No evaluators found')}</div>}
 				</>
 			)}
 		</>

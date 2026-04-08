@@ -1,5 +1,6 @@
 import { FC, useContext, useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { useParams, useNavigate, useSearchParams } from 'react-router';
+import { logError } from '@/utils/errorHandling';
 
 // Icons
 import AgreementIcon from '@/assets/icons/agreementIcon.svg?react';
@@ -9,24 +10,38 @@ import RandomIcon from '@/assets/icons/randomIcon.svg?react';
 import SortIcon from '@/assets/icons/sort.svg?react';
 import UpdateIcon from '@/assets/icons/updateIcon.svg?react';
 import XmenuIcon from '@/assets/icons/x-icon.svg?react';
+import EyeIcon from '@/assets/icons/eye.svg?react';
+import EyeCrossIcon from '@/assets/icons/eyeCross.svg?react';
+import CompoundIcon from '@/assets/icons/stepsIcon.svg?react';
+import QuestionIcon from '@/assets/icons/navQuestionsIcon.svg?react';
+import { Users } from 'lucide-react';
 
 import useStatementColor from '@/controllers/hooks/useStatementColor';
 import styles from './StatementBottomNav.module.scss';
 import { StatementContext } from '../../../StatementCont';
 import { sortItems } from './StatementBottomNavModal';
-import { EvaluationUI, Role, SortType, StatementType } from 'delib-npm';
+import { EvaluationUI, Role, SortType, StatementType, ParagraphType } from '@freedi/shared-types';
 import { useUserConfig } from '@/controllers/hooks/useUserConfig';
 import { useDecreaseLearningRemain } from '@/controllers/hooks/useDecreaseLearningRemain';
 import { useDispatch, useSelector } from 'react-redux';
 import { setNewStatementModal } from '@/redux/statements/newStatementSlice';
-import { statementSubscriptionSelector } from '@/redux/statements/statementsSlice';
+import {
+	statementSubscriptionSelector,
+	statementOptionsSelector,
+	statementSubsSelector,
+} from '@/redux/statements/statementsSlice';
 import IdeaRefineryModal from '../../popperHebbian/refinery/IdeaRefineryModal';
 import InitialIdeaModal from '../../popperHebbian/refinery/InitialIdeaModal';
 import { createStatementWithSubscription } from '@/controllers/db/statements/createStatementWithSubscription';
 import { useAuthentication } from '@/controllers/hooks/useAuthentication';
-import { QuestionType } from 'delib-npm';
+import { QuestionType, CompoundPhase } from '@freedi/shared-types';
+import { useIsProcessHalted } from '@/controllers/hooks/useIsProcessHalted';
+import { generateParagraphId } from '@/utils/paragraphUtils';
+import { useShowHiddenCards } from '@/controllers/hooks/useShowHiddenCards';
 
-interface Props { showNav?: boolean; }
+interface Props {
+	showNav?: boolean;
+}
 
 const StatementBottomNav: FC<Props> = () => {
 	const { statementId } = useParams<{ statementId: string }>();
@@ -34,10 +49,20 @@ const StatementBottomNav: FC<Props> = () => {
 	const navigate = useNavigate();
 	const { user } = useAuthentication();
 
+	const [searchParams] = useSearchParams();
+	const activeTab = searchParams.get('tab') ?? 'chat';
+
 	const { statement } = useContext(StatementContext);
 	const subscription = useSelector(statementSubscriptionSelector(statementId));
+	const options = useSelector(statementOptionsSelector(statementId));
+	const allSubs = useSelector(statementSubsSelector(statementId));
 	const role = subscription?.role;
 	const isAdmin = role === 'admin' || role === Role.creator;
+	const { isHalted } = useIsProcessHalted(statement);
+
+	// Show sort when there are at least 2 direct children (options or any type)
+	// In tree view, options may be nested under sub-groups, so count all children too
+	const hasEnoughOptionsToSort = options.length >= 2 || allSubs.length >= 2;
 
 	const { dir, learning, t, currentLanguage } = useUserConfig();
 	const decreaseLearning = useDecreaseLearningRemain();
@@ -61,6 +86,10 @@ const StatementBottomNav: FC<Props> = () => {
 		(canAddOptionVoting && evaluatingSettings === EvaluationUI.voting);
 
 	const [showSorting, setShowSorting] = useState(false);
+	const [showAddMenu, setShowAddMenu] = useState(false);
+
+	// Admin toggle for showing/hiding hidden cards
+	const { showHiddenCards, toggleShowHiddenCards } = useShowHiddenCards();
 
 	const isLearningFace = timesRemainToLearnAddOption > 0;
 	const isRTL = dir === 'rtl';
@@ -78,19 +107,28 @@ const StatementBottomNav: FC<Props> = () => {
 
 	const statementColor = useStatementColor({ statement });
 
-	// Filter out the Agreement sort option if showEvaluation is false
+	// Filter out sort options based on settings
 	const showEvaluation = statement?.statementSettings?.showEvaluation ?? true;
-	const filteredSortItems = showEvaluation
-		? sortItems
-		: sortItems.filter(item => item.id !== SortType.accepted);
+	const joiningEnabled = statement?.statementSettings?.joiningEnabled ?? false;
+	const filteredSortItems = sortItems.filter((item) => {
+		// Filter out Agreement if evaluation is disabled
+		if (item.id === SortType.accepted && !showEvaluation) return false;
+		// When joining is enabled, show Joined instead of Update
+		if (item.id === SortType.mostJoined && !joiningEnabled) return false;
+		if (item.id === SortType.mostUpdated && joiningEnabled) return false;
+
+		return true;
+	});
 
 	function handleCreateNewOption() {
 		if (!statement) return;
 
-		// Default to question if parent is an option (options can't be created under options)
-		const defaultType = statement.statementType === StatementType.option
-			? StatementType.question
-			: StatementType.option;
+		// Default to question if parent is an option or group (options can't be created under options or groups)
+		const defaultType =
+			statement.statementType === StatementType.option ||
+			statement.statementType === StatementType.group
+				? StatementType.question
+				: StatementType.option;
 
 		dispatch(
 			setNewStatementModal({
@@ -99,11 +137,46 @@ const StatementBottomNav: FC<Props> = () => {
 				showModal: true,
 				isLoading: false,
 				error: null,
-			})
+			}),
+		);
+	}
+
+	function handleCreateSimpleQuestion() {
+		if (!statement) return;
+		setShowAddMenu(false);
+		dispatch(
+			setNewStatementModal({
+				parentStatement: statement,
+				newStatement: { statementType: StatementType.question },
+				showModal: true,
+				isLoading: false,
+				error: null,
+			}),
+		);
+	}
+
+	function handleCreateCompoundQuestion() {
+		if (!statement) return;
+		setShowAddMenu(false);
+		dispatch(
+			setNewStatementModal({
+				parentStatement: statement,
+				newStatement: {
+					statementType: StatementType.question,
+					questionSettings: {
+						questionType: QuestionType.compound,
+						compoundSettings: { currentPhase: CompoundPhase.defineQuestion },
+					},
+				},
+				showModal: true,
+				isLoading: false,
+				error: null,
+			}),
 		);
 	}
 
 	const handleAddOption = () => {
+		if (isHalted) return;
 		// If Popper-Hebbian mode is enabled AND pre-check is enabled, show initial idea modal first
 		if (isPopperHebbianEnabled && isPopperPreCheckEnabled) {
 			setShowInitialIdeaModal(true);
@@ -132,33 +205,43 @@ const StatementBottomNav: FC<Props> = () => {
 			setInitialIdea('');
 
 			// Automatically create the statement with the refined idea
-			const defaultType = statement.statementType === StatementType.option
-				? StatementType.question
-				: StatementType.option;
+			const defaultType =
+				statement.statementType === StatementType.option ||
+				statement.statementType === StatementType.group
+					? StatementType.question
+					: StatementType.option;
 
-			// Extract title (first line or first 100 chars) and use full refined text as description
+			// Extract title (first line or first 100 chars) and convert rest to paragraphs
 			const lines = refinedText.split('\n');
 			const title = lines[0].substring(0, 100);
-			const description = refinedText;
+			const bodyLines = lines.slice(1).filter((line) => line.trim());
+			const paragraphs = bodyLines.map((line, index) => ({
+				paragraphId: generateParagraphId(),
+				type: ParagraphType.paragraph,
+				content: line,
+				order: index,
+			}));
 
 			await createStatementWithSubscription({
 				newStatementParent: statement,
 				title,
-				description,
+				paragraphs,
 				newStatement: { statementType: defaultType },
 				newStatementQuestionType: statement.questionSettings?.questionType || QuestionType.simple,
 				currentLanguage,
 				user,
 				dispatch,
 			});
-
-			} catch (error) {
-			console.error('Failed to publish refined idea:', error);
+		} catch (error) {
+			logError(error, {
+				operation: 'bottom.StatementBottomNav.paragraphs',
+				metadata: { message: 'Failed to publish refined idea:' },
+			});
 		}
 	}
 
 	function handleSortingClick() {
-		setShowSorting(v => !v);
+		setShowSorting((v) => !v);
 	}
 
 	function getBaseRoute() {
@@ -167,68 +250,144 @@ const StatementBottomNav: FC<Props> = () => {
 		return path.includes('/stage/') ? 'stage' : 'statement';
 	}
 
-	function handleSortClick(navItem: typeof filteredSortItems[0]) {
+	function handleSortClick(navItem: (typeof filteredSortItems)[0]) {
 		setShowSorting(false);
-		if (navItem.link === SortType.random) {
-			navigate(`/${getBaseRoute()}/${statement?.statementId}/${navItem.link}?t=${Date.now()}`);
-		} else {
-			navigate(`/${getBaseRoute()}/${statement?.statementId}/${navItem.link}`);
-		}
+		const tab = searchParams.get('tab');
+		const params = new URLSearchParams();
+		if (tab) params.set('tab', tab);
+		if (navItem.link === SortType.random) params.set('t', String(Date.now()));
+		const query = params.toString();
+		navigate(
+			`/${getBaseRoute()}/${statement?.statementId}/${navItem.link}${query ? `?${query}` : ''}`,
+		);
 	}
 
 	// Add mobile-only class that hides the Add button when menu is open
 	const navRootClass = [
-		showSorting ? `${styles.statementBottomNav} ${styles.statementBottomNavShow}` : styles.statementBottomNav,
+		showSorting
+			? `${styles.statementBottomNav} ${styles.statementBottomNavShow}`
+			: styles.statementBottomNav,
 		showSorting ? styles.sortExpandedMobile : '',
 	].join(' ');
 
 	return (
 		<>
 			<div className={navRootClass}>
-				<div className={`${styles.addOptionButtonWrapper} ${dir === 'ltr' ? styles.addOptionButtonWrapperLtr : ''}`}>
-					{(canAddOption || isAdmin) && (
-						<button
-							className={`${styles.addOptionButton} ${isLearningFace ? styles.addOptionButtonPill : ''} ${showIntro ? (isRTL ? styles.addOptionButtonIntroRTL : styles.addOptionButtonIntroLTR) : ''
-								} ${justFinishedLearning ? styles.addOptionButtonShrinking : ''}`}
-							aria-label={isLearningFace ? t('addSolution_aria') : t('addOption_aria')}
-							style={statementColor}
-							onClick={handleAddOption}
-							data-cy="bottom-nav-mid-icon"
-						>
-							{!isLearningFace && <PlusIcon style={{ color: statementColor.color }} />}
-							{isLearningFace && (
-								<span className={styles.addOptionButtonLabel} dir={dir}>
-									{t('Add an answer')}
-								</span>
+				<div
+					className={`${styles.addOptionButtonWrapper} ${dir === 'ltr' ? styles.addOptionButtonWrapperLtr : ''}`}
+				>
+					{(canAddOption || isAdmin) && !(isHalted && activeTab === 'options') && (
+						<div className={styles.addButtonGroup}>
+							{showAddMenu && (
+								<>
+									<button className={styles.addMenuOverlay} onClick={() => setShowAddMenu(false)} />
+									{activeTab !== 'options' && (
+										<div className={styles.subFabMenu}>
+											{activeTab === 'questions' && (
+												<button
+													className={`${styles.subFabButton} ${styles.subFabButtonQuestion}`}
+													onClick={handleCreateSimpleQuestion}
+													aria-label={t('Add New Question')}
+													title={t('Add New Question')}
+													style={{ animationDelay: '0ms' }}
+												>
+													<QuestionIcon style={{ color: '#fff' }} />
+												</button>
+											)}
+											<button
+												className={`${styles.subFabButton} ${styles.subFabButtonCompound}`}
+												onClick={handleCreateCompoundQuestion}
+												aria-label={t('Compound Question')}
+												title={t('Compound Question')}
+												style={{ animationDelay: activeTab === 'questions' ? '60ms' : '0ms' }}
+											>
+												<CompoundIcon style={{ color: '#fff' }} />
+											</button>
+										</div>
+									)}
+								</>
 							)}
-						</button>
+							<button
+								className={`${styles.addOptionButton} ${isLearningFace ? styles.addOptionButtonPill : ''} ${
+									showIntro
+										? isRTL
+											? styles.addOptionButtonIntroRTL
+											: styles.addOptionButtonIntroLTR
+										: ''
+								} ${justFinishedLearning ? styles.addOptionButtonShrinking : ''} ${showAddMenu ? styles.addOptionButtonRotated : ''}`}
+								aria-label={isLearningFace ? t('addSolution_aria') : t('addOption_aria')}
+								style={statementColor}
+								onClick={
+									activeTab === 'options'
+										? handleAddOption
+										: showAddMenu
+											? () => {
+													setShowAddMenu(false);
+													handleAddOption();
+												}
+											: () => setShowAddMenu(true)
+								}
+								data-cy="bottom-nav-mid-icon"
+							>
+								{!isLearningFace && <PlusIcon style={{ color: statementColor.color }} />}
+								{isLearningFace && (
+									<span className={styles.addOptionButtonLabel} dir={dir}>
+										{t('Add an answer')}
+									</span>
+								)}
+							</button>
+						</div>
 					)}
 
-					{/* Sort menu (absolute fan-out like main branch) */}
-					<div className={styles.sortMenu}>
-						{filteredSortItems.map((navItem, i) => (
-							<div
-								key={`item-id-${i}`}
-								className={`${styles.sortMenu__item} ${showSorting ? styles.active : ''}`}
-							>
-								<button
-									className={`${styles.openNavIcon} ${showSorting ? styles.active : ''}`}
-									aria-label="Sorting options"
-									onClick={() => handleSortClick(navItem)}
+					{/* Sort menu (absolute fan-out like main branch) - only show when there are at least 2 answers */}
+					{hasEnoughOptionsToSort && (
+						<div className={styles.sortMenu}>
+							{filteredSortItems.map((navItem, i) => (
+								<div
+									key={`item-id-${i}`}
+									className={`${styles.sortMenu__item} ${showSorting ? styles.active : ''}`}
 								>
-									<NavIcon name={navItem.id} color={statementColor.backgroundColor} />
-								</button>
-								<span className={styles.buttonName}>{navItem.name}</span>
-							</div>
-						))}
-						<button
-							className={styles.sortButton}
-							onClick={handleSortingClick}
-							aria-label={showSorting ? 'Close sorting' : 'Open sorting'}
-						>
-							{showSorting ? <XmenuIcon className={styles.whiteIcon} /> : <SortIcon />}
-						</button>
-					</div>
+									<button
+										className={`${styles.openNavIcon} ${showSorting ? styles.active : ''}`}
+										aria-label="Sorting options"
+										onClick={() => handleSortClick(navItem)}
+									>
+										<NavIcon name={navItem.id} color={statementColor.backgroundColor} />
+									</button>
+									<span className={styles.buttonName}>{navItem.name}</span>
+								</div>
+							))}
+							{/* Admin-only toggle for showing/hiding hidden cards */}
+							{isAdmin && (
+								<div
+									className={`${styles.sortMenu__item} ${styles.sortMenu__item_visibility} ${showSorting ? styles.active : ''}`}
+								>
+									<button
+										className={`${styles.openNavIcon} ${styles.visibilityToggle} ${showSorting ? styles.active : ''} ${showHiddenCards ? styles.visibilityToggle_active : ''}`}
+										aria-label={t('Toggle visibility of hidden suggestion cards')}
+										title={showHiddenCards ? t('Hide hidden cards') : t('Show hidden cards')}
+										onClick={toggleShowHiddenCards}
+									>
+										{showHiddenCards ? (
+											<EyeIcon style={{ color: statementColor.backgroundColor }} />
+										) : (
+											<EyeCrossIcon style={{ color: statementColor.backgroundColor }} />
+										)}
+									</button>
+									<span className={styles.buttonName}>
+										{showHiddenCards ? t('Hide hidden cards') : t('Show hidden cards')}
+									</span>
+								</div>
+							)}
+							<button
+								className={styles.sortButton}
+								onClick={handleSortingClick}
+								aria-label={showSorting ? 'Close sorting' : 'Open sorting'}
+							>
+								{showSorting ? <XmenuIcon className={styles.whiteIcon} /> : <SortIcon />}
+							</button>
+						</div>
+					)}
 				</div>
 			</div>
 
@@ -258,15 +417,25 @@ const StatementBottomNav: FC<Props> = () => {
 
 export default StatementBottomNav;
 
-interface NavIconProps { name: string; color: string; }
+interface NavIconProps {
+	name: string;
+	color: string;
+}
 
 const NavIcon: FC<NavIconProps> = ({ name, color }) => {
 	const props = { style: { color } };
 	switch (name) {
-		case SortType.newest: return <NewestIcon {...props} />;
-		case SortType.mostUpdated: return <UpdateIcon {...props} />;
-		case SortType.random: return <RandomIcon {...props} />;
-		case SortType.accepted: return <AgreementIcon {...props} />;
-		default: return null;
+		case SortType.newest:
+			return <NewestIcon {...props} />;
+		case SortType.mostUpdated:
+			return <UpdateIcon {...props} />;
+		case SortType.random:
+			return <RandomIcon {...props} />;
+		case SortType.accepted:
+			return <AgreementIcon {...props} />;
+		case SortType.mostJoined:
+			return <Users size={24} color={color} />;
+		default:
+			return null;
 	}
 };

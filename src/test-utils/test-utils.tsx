@@ -6,153 +6,104 @@ import { Provider } from 'react-redux';
 import type { RootState } from '@/redux/store';
 
 // Import all your reducers
-import { evaluationsSlicer } from '@/redux/evaluations/evaluationsSlice';
+import { evaluationsSlice } from '@/redux/evaluations/evaluationsSlice';
 import { resultsSlice } from '@/redux/results/resultsSlice';
-import { statementMetaData } from '@/redux/statements/statementsMetaSlice';
-import { statementsSlicer, StatementScreen } from '@/redux/statements/statementsSlice';
-import { votesSlicer } from '@/redux/vote/votesSlice';
+import { statementsMetaSlice } from '@/redux/statements/statementsMetaSlice';
+import { statementsSlice, StatementScreen } from '@/redux/statements/statementsSlice';
+import { votesSlice } from '@/redux/vote/votesSlice';
 import { choseBySlice } from '@/redux/choseBy/choseBySlice';
-import { massConsensusSlice } from '@/redux/massConsensus/massConsensusSlice';
-import { notificationsSlicer } from '@/redux/notificationsSlice/notificationsSlice';
-import creatorReducer from '@/redux/creator/creatorSlice';
-import SubscriptionsReducer from '@/redux/subscriptions/subscriptionsSlice';
-import userDemographicReducer from '@/redux/userDemographic/userDemographicSlice';
-import newStatementReducer from '@/redux/statements/newStatementSlice';
+import { notificationsSlice } from '@/redux/notificationsSlice/notificationsSlice';
+import { creatorSlice } from '@/redux/creator/creatorSlice';
+import { subscriptionsSlice } from '@/redux/subscriptions/subscriptionsSlice';
+import { userDemographicSlice } from '@/redux/userDemographic/userDemographicSlice';
+import { newStatementSlice } from '@/redux/statements/newStatementSlice';
 
 interface ExtendedRenderOptions extends Omit<RenderOptions, 'queries'> {
-  preloadedState?: PreloadedState<RootState>;
-  store?: ReturnType<typeof configureStore>;
+	preloadedState?: PreloadedState<RootState>;
+	store?: ReturnType<typeof configureStore>;
 }
 
 export function renderWithProviders(
-  ui: React.ReactElement,
-  {
-    preloadedState,
-    store = configureStore({
-        reducer: {
-            statements: statementsSlicer.reducer,
-            statementMetaData: statementMetaData.reducer,
-            evaluations: evaluationsSlicer.reducer,
-            votes: votesSlicer.reducer,
-            results: resultsSlice.reducer,
-            choseBys: choseBySlice.reducer,
-            massConsensus: massConsensusSlice.reducer,
-            notifications: notificationsSlicer.reducer,
-            creator: creatorReducer,
-            subscriptions: SubscriptionsReducer.reducer,
-            userDemographic: userDemographicReducer,
-            newStatement: newStatementReducer
-        },
-        preloadedState 
-    }),
-    ...renderOptions
-  }: ExtendedRenderOptions = {}
+	ui: React.ReactElement,
+	{
+		preloadedState,
+		store = configureStore({
+			reducer: {
+				statements: statementsSlice.reducer,
+				statementMetaData: statementsMetaSlice.reducer,
+				evaluations: evaluationsSlice.reducer,
+				votes: votesSlice.reducer,
+				results: resultsSlice.reducer,
+				choseBys: choseBySlice.reducer,
+				notifications: notificationsSlice.reducer,
+				creator: creatorSlice.reducer,
+				subscriptions: subscriptionsSlice.reducer,
+				userDemographic: userDemographicSlice.reducer,
+				newStatement: newStatementSlice.reducer,
+			},
+			preloadedState,
+		}),
+		...renderOptions
+	}: ExtendedRenderOptions = {},
 ) {
-  function Wrapper({ children }: { children: React.ReactNode }): React.ReactElement {
-    return <Provider store={store}>{children}</Provider>;
-  }
+	function Wrapper({ children }: { children: React.ReactNode }): React.ReactElement {
+		return <Provider store={store}>{children}</Provider>;
+	}
 
-  return { store, ...render(ui, { wrapper: Wrapper, ...renderOptions }) };
+	return { store, ...render(ui, { wrapper: Wrapper, ...renderOptions }) };
 }
 
 export const getMockRootState = (overrides: Partial<RootState> = {}): RootState => {
-    // Create the base mock state
-    const baseMockState = {
-        statements: {
-            statements: [],
-            statementSubscription: [],
-            statementSubscriptionLastUpdate: 0,
-            statementMembership: [],
-            screen: StatementScreen.chat,
-        },
-        statementMetaData: {
-            statementsMetaData: [],
-        },
-        evaluations: {
-            userEvaluations: [],
-        },
-        votes: {
-            votes: [],
-        },
-        results: {
-            results: [],
-        },
-        choseBys: {
-            statements: [],
-        },
-        massConsensus: {
-            similarStatements: [],
-            massConsensusProcess: [],
-            randomStatements: [],
-            randomStatementsBatches: [],
-            currentRandomBatch: 0,
-            viewedStatementIds: [],
-            prefetch: {
-                randomBatches: [],
-                randomBatchesTimestamp: 0,
-                randomBatchesParentId: '',
-                topStatements: [],
-                topStatementsTimestamp: 0,
-                topStatementsParentId: '',
-            },
-            loading: {
-                fetchingNewRandom: false,
-                prefetchingRandom: false,
-                prefetchingTop: false,
-            },
-            ui: {
-                evaluationsPerBatch: {},
-                canGetNewSuggestions: false,
-                totalBatchesViewed: 1,
-                cyclesCompleted: 0,
-                allSuggestionsViewed: false,
-                showRecycleMessage: false,
-            },
-            errors: {},
-        },
-        notifications: {
-            inAppNotifications: [],
-        },
-        creator: {
-            creator: null,
-        },
-        subscriptions: {
-            waitingList: [],
-        },
-        userDemographic: {
-            userDemographicQuestions: [],
-            userDemographic: [],
-            polarizationIndexes: [],
-        },
-        newStatement: {
-            parentStatement: null,
-            newStatement: null,
-            isLoading: false,
-            error: null,
-            showModal: false,
-        },
-        // Add the RTK Query massConsensusApi state
-        massConsensusApi: {
-            queries: {},
-            mutations: {},
-            provided: {},
-            subscriptions: {},
-            config: {
-                online: true,
-                focused: true,
-                middlewareRegistered: true,
-                refetchOnFocus: false,
-                refetchOnReconnect: false,
-                refetchOnMountOrArgChange: false,
-                keepUnusedDataFor: 60,
-                reducerPath: 'massConsensusApi',
-            },
-        },
-    };
+	// Create the base mock state
+	const baseMockState = {
+		statements: {
+			statements: [],
+			statementSubscription: [],
+			statementSubscriptionLastUpdate: 0,
+			statementMembership: [],
+			screen: StatementScreen.chat,
+		},
+		statementMetaData: {
+			statementsMetaData: [],
+		},
+		evaluations: {
+			userEvaluations: [],
+		},
+		votes: {
+			votes: [],
+		},
+		results: {
+			results: [],
+		},
+		choseBys: {
+			statements: [],
+		},
+		notifications: {
+			inAppNotifications: [],
+		},
+		creator: {
+			creator: null,
+		},
+		subscriptions: {
+			waitingList: [],
+		},
+		userDemographic: {
+			userDemographicQuestions: [],
+			userDemographic: [],
+			polarizationIndexes: [],
+		},
+		newStatement: {
+			parentStatement: null,
+			newStatement: null,
+			isLoading: false,
+			error: null,
+			showModal: false,
+		},
+	};
 
-    // Merge with overrides
-    return {
-        ...baseMockState,
-        ...overrides,
-    } as RootState;
+	// Merge with overrides
+	return {
+		...baseMockState,
+		...overrides,
+	} as RootState;
 };

@@ -1,0 +1,303 @@
+'use client';
+
+import { useState, useCallback, useEffect } from 'react';
+import { useTranslation } from '@freedi/shared-i18n/next';
+import { useUIStore } from '@/store/uiStore';
+import { useDemographicStore, selectIsInteractionBlocked } from '@/store/demographicStore';
+import { getOrCreateAnonymousUser } from '@/lib/utils/user';
+import { useHeatMapStore } from '@/store/heatMapStore';
+import { logError } from '@/lib/utils/errorHandling';
+import styles from './InteractionBar.module.scss';
+
+interface InteractionBarProps {
+  paragraphId: string;
+  /** User's evaluation: 1 (approve), -1 (reject), undefined (no vote) */
+  userEvaluation: number | undefined;
+  isLoggedIn: boolean;
+  commentCount: number;
+  suggestionCount?: number;
+  enableSuggestions?: boolean;
+  /** When true, users must sign in with Google to interact */
+  requireGoogleLogin?: boolean;
+  /** Whether the current user is anonymous */
+  isAnonymous?: boolean;
+  /** Positive evaluation count from evaluations system */
+  positiveEvaluations?: number;
+  /** Negative evaluation count from evaluations system */
+  negativeEvaluations?: number;
+}
+
+export default function InteractionBar({
+  paragraphId,
+  userEvaluation,
+  isLoggedIn,
+  commentCount,
+  suggestionCount = 0,
+  enableSuggestions = false,
+  requireGoogleLogin = false,
+  isAnonymous = false,
+  positiveEvaluations,
+  negativeEvaluations,
+}: InteractionBarProps) {
+  const { t } = useTranslation();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [localEvaluation, setLocalEvaluation] = useState(userEvaluation);
+  const { openModal, setEvaluation } = useUIStore();
+  const { openSurveyModal } = useDemographicStore();
+  const isInteractionBlocked = useDemographicStore(selectIsInteractionBlocked);
+
+  // Sync local evaluation with store on mount and when userEvaluation changes
+  useEffect(() => {
+    if (userEvaluation !== undefined) {
+      setEvaluation(paragraphId, userEvaluation);
+    }
+  }, [paragraphId, userEvaluation, setEvaluation]);
+
+  // Whether interaction is blocked by requireGoogleLogin
+  const isGoogleLoginRequired = requireGoogleLogin && isAnonymous;
+
+  const handleVote = useCallback(
+    async (vote: number) => {
+      // Check if Google login is required for interactions
+      if (isGoogleLoginRequired) {
+        openModal('login', {});
+
+        return;
+      }
+
+      // Check if blocked by demographic survey
+      if (isInteractionBlocked) {
+        openSurveyModal();
+
+        return;
+      }
+
+      // Ensure user has an ID (create anonymous user if needed)
+      if (!isLoggedIn) {
+        getOrCreateAnonymousUser();
+      }
+
+      // Toggle: if same vote, remove it; otherwise set new vote
+      const previousEvaluation = localEvaluation;
+      const newEvaluation = previousEvaluation === vote ? null : vote;
+
+      // Optimistic update - both local state and store
+      setLocalEvaluation(newEvaluation ?? undefined);
+      setEvaluation(paragraphId, newEvaluation);
+      setIsSubmitting(true);
+
+      try {
+        if (newEvaluation === null) {
+          // Remove evaluation
+          const response = await fetch(`/api/suggestion-evaluations/${paragraphId}`, {
+            method: 'DELETE',
+            credentials: 'include',
+          });
+
+          if (!response.ok) {
+            // Revert on failure
+            setLocalEvaluation(previousEvaluation);
+            setEvaluation(paragraphId, previousEvaluation ?? null);
+            const error = await response.json();
+            logError(error, {
+              operation: 'InteractionBar.handleVote.remove',
+              metadata: { paragraphId },
+            });
+          }
+        } else {
+          // Create or update evaluation
+          const response = await fetch(`/api/suggestion-evaluations/${paragraphId}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({ evaluation: newEvaluation }),
+          });
+
+          if (!response.ok) {
+            // Revert on failure
+            setLocalEvaluation(previousEvaluation);
+            setEvaluation(paragraphId, previousEvaluation ?? null);
+            const error = await response.json();
+            logError(error, {
+              operation: 'InteractionBar.handleVote.submit',
+              metadata: { paragraphId },
+            });
+          }
+        }
+      } catch (error) {
+        // Revert on error
+        setLocalEvaluation(previousEvaluation);
+        setEvaluation(paragraphId, previousEvaluation ?? null);
+        logError(error, {
+          operation: 'InteractionBar.handleVote',
+          metadata: { paragraphId },
+        });
+      } finally {
+        setIsSubmitting(false);
+      }
+    },
+    [paragraphId, isLoggedIn, localEvaluation, setEvaluation, isInteractionBlocked, openSurveyModal, isGoogleLoginRequired, openModal]
+  );
+
+  const handleOpenComments = () => {
+    // Check if Google login is required for interactions
+    if (isGoogleLoginRequired) {
+      openModal('login', {});
+
+      return;
+    }
+
+    // Check if blocked by demographic survey
+    if (isInteractionBlocked) {
+      openSurveyModal();
+
+      return;
+    }
+
+    openModal('comments', { paragraphId });
+  };
+
+  const handleOpenSuggestions = () => {
+    // Check if Google login is required for interactions
+    if (isGoogleLoginRequired) {
+      openModal('login', {});
+
+      return;
+    }
+
+    // Check if blocked by demographic survey
+    if (isInteractionBlocked) {
+      openSurveyModal();
+
+      return;
+    }
+
+    openModal('suggestions', { paragraphId });
+  };
+
+  // Tooltip text when blocked
+  const blockedTitle = isGoogleLoginRequired
+    ? t('Sign in with Google to interact')
+    : isInteractionBlocked
+      ? t('Complete survey to interact')
+      : undefined;
+
+  // Use local state if available, otherwise use prop
+  const currentEvaluation = localEvaluation !== undefined ? localEvaluation : userEvaluation;
+
+  // Stop propagation to prevent toggling the parent card
+  const handleButtonClick = (e: React.MouseEvent, action: () => void) => {
+    e.stopPropagation();
+    action();
+  };
+
+  // Only show vote counts when approval heat map is active
+  const heatMapConfig = useHeatMapStore((state) => state.config);
+  const showVoteCounts = heatMapConfig.isEnabled && heatMapConfig.type === 'approval';
+  const approveCount = positiveEvaluations ?? 0;
+  const rejectCount = negativeEvaluations ?? 0;
+
+  return (
+    <div className={styles.bar} onClick={(e) => e.stopPropagation()}>
+      <div className={styles.approvalButtons}>
+        <button
+          type="button"
+          className={`${styles.button} ${styles.approveButton} ${currentEvaluation === 1 ? styles.active : ''} ${isInteractionBlocked || isGoogleLoginRequired ? styles.blocked : ''}`}
+          onClick={(e) => handleButtonClick(e, () => handleVote(1))}
+          disabled={isSubmitting}
+          aria-pressed={currentEvaluation === 1}
+          title={blockedTitle || t('Approve')}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
+          <span className={styles.buttonText}>{t('Approve')}</span>
+          {showVoteCounts && approveCount > 0 && (
+            <span className={styles.voteCount}>{approveCount}</span>
+          )}
+        </button>
+
+        <button
+          type="button"
+          className={`${styles.button} ${styles.rejectButton} ${currentEvaluation === -1 ? styles.active : ''} ${isInteractionBlocked || isGoogleLoginRequired ? styles.blocked : ''}`}
+          onClick={(e) => handleButtonClick(e, () => handleVote(-1))}
+          disabled={isSubmitting}
+          aria-pressed={currentEvaluation === -1}
+          title={blockedTitle || t('Reject')}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+          <span className={styles.buttonText}>{t('Reject')}</span>
+          {showVoteCounts && rejectCount > 0 && (
+            <span className={styles.voteCount}>{rejectCount}</span>
+          )}
+        </button>
+      </div>
+
+      <button
+        type="button"
+        className={`${styles.button} ${styles.commentButton} ${isInteractionBlocked || isGoogleLoginRequired ? styles.blocked : ''}`}
+        onClick={(e) => handleButtonClick(e, handleOpenComments)}
+        title={blockedTitle || t('Comments')}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+        <span className={styles.buttonText}>{t('Comments')}</span>
+        {commentCount > 0 && (
+          <span className={styles.commentCount}>{commentCount}</span>
+        )}
+      </button>
+
+      {/* Suggest button - only show if suggestions are enabled */}
+      {enableSuggestions && (
+        <button
+          type="button"
+          className={`${styles.button} ${styles.suggestButton} ${isInteractionBlocked || isGoogleLoginRequired ? styles.blocked : ''}`}
+          onClick={(e) => handleButtonClick(e, handleOpenSuggestions)}
+          title={blockedTitle || t('Suggest Alternative')}
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-7 7c0 2.38 1.19 4.47 3 5.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26c1.81-1.27 3-3.36 3-5.74a7 7 0 0 0-7-7z" />
+          </svg>
+          <span className={styles.buttonText}>{t('Suggest')}</span>
+          {suggestionCount > 0 && (
+            <span className={styles.suggestionCount}>{suggestionCount}</span>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}

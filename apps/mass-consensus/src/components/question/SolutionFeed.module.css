@@ -1,28 +1,22 @@
 .feed {
   display: flex;
   flex-direction: column;
-  gap: var(--spacing-xl);
+  gap: var(--spacing-lg);
+  min-height: 100vh;
+  padding-bottom: 100px; /* Space for social feed */
 }
 
-.batchIndicator {
-  background: var(--btn-secondary);
-  padding: var(--spacing-sm) var(--spacing-md);
-  border-radius: 20px;
-  text-align: center;
-  font-size: 0.875rem;
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
+/* Error message */
 .error {
   background: #ffebee;
   border: 1px solid var(--disagree);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: var(--spacing-md);
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: var(--spacing-md);
+  margin: 0 var(--spacing-md);
 }
 
 .error p {
@@ -37,6 +31,271 @@
   text-decoration: underline;
   cursor: pointer;
   font-size: 0.875rem;
+}
+
+/* Empty state */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xxl) var(--spacing-lg);
+  text-align: center;
+  min-height: 400px;
+  background: linear-gradient(135deg, var(--color-lavender, #D9D4E7) 0%, var(--color-peach, #F5DDD6) 100%);
+  border-radius: 24px;
+  margin: var(--spacing-md);
+}
+
+.emptyState h3 {
+  margin-bottom: var(--spacing-md);
+  color: var(--text-body);
+  font-size: 1.5rem;
+}
+
+.emptyState p {
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  margin-bottom: var(--spacing-lg);
+  max-width: 400px;
+}
+
+.addSolutionButtonPrimary {
+  background: var(--color-primary, #7C9EB2);
+  color: white;
+  padding: var(--spacing-md) var(--spacing-xl);
+  border-radius: 9999px;
+  font-size: 1rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 16px rgba(124, 158, 178, 0.4);
+  min-width: 200px;
+  border: none;
+  cursor: pointer;
+}
+
+.addSolutionButtonPrimary:hover {
+  background: #6B8DA1;
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px rgba(124, 158, 178, 0.5);
+}
+
+/* Progress Bar */
+.progressBar {
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: white;
+  border-radius: 16px;
+  margin: 0 var(--spacing-md);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.progressInfo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--spacing-sm);
+}
+
+.progressCount {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-body, #475569);
+}
+
+.batchBadge {
+  padding: 0.25rem 0.75rem;
+  background: var(--color-lavender, #D9D4E7);
+  color: #6B5B7D;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.progressTrack {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-primary, #7C9EB2), var(--color-mint, #C9E4DE));
+  border-radius: 9999px;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Card Stack */
+.cardStack {
+  position: relative;
+  height: 380px;
+  margin: var(--spacing-md);
+  perspective: 1000px;
+}
+
+/* Batch Complete State */
+.batchComplete {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--color-mint, #C9E4DE) 0%, var(--color-secondary, #B8D4E3) 100%);
+  border-radius: 24px;
+  padding: var(--spacing-xl);
+  text-align: center;
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.completeIcon {
+  font-size: 4rem;
+  margin-bottom: var(--spacing-md);
+  animation: bounce 0.6s ease-out;
+}
+
+@keyframes bounce {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+.batchComplete h3 {
+  font-size: 1.5rem;
+  color: var(--text-body, #475569);
+  margin: 0 0 var(--spacing-sm) 0;
+}
+
+.batchComplete p {
+  font-size: 1rem;
+  color: var(--text-secondary, #64748b);
+  margin: 0 0 var(--spacing-lg) 0;
+}
+
+.nextBatchButton,
+.viewResultsButton {
+  padding: var(--spacing-md) var(--spacing-xl);
+  border-radius: 9999px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  border: none;
+}
+
+.nextBatchButton {
+  background: var(--color-primary, #7C9EB2);
+  color: white;
+  box-shadow: 0 4px 16px rgba(124, 158, 178, 0.4);
+}
+
+.nextBatchButton:hover:not(:disabled) {
+  background: #6B8DA1;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(124, 158, 178, 0.5);
+}
+
+.nextBatchButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.viewResultsButton {
+  background: #10b981;
+  color: white;
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+}
+
+.viewResultsButton:hover {
+  background: #059669;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(16, 185, 129, 0.5);
+}
+
+/* Evaluation Area */
+.evaluationArea {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.swipeHint {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin: 0;
+  text-align: center;
+}
+
+/* Action Buttons */
+.actionButtons {
+  display: flex;
+  gap: var(--spacing-md);
+  padding: 0 var(--spacing-md);
+  justify-content: center;
+}
+
+.viewProgressButton {
+  flex: 1;
+  max-width: 200px;
+  background: var(--color-mint, #C9E4DE);
+  color: #4A7C6F;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: 9999px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+
+.viewProgressButton:hover {
+  background: #B8D3CD;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(74, 124, 111, 0.2);
+}
+
+.addSolutionButton {
+  flex: 1;
+  max-width: 200px;
+  background: var(--color-primary, #7C9EB2);
+  color: white;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-radius: 9999px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  transition: all 0.3s ease;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(124, 158, 178, 0.3);
+}
+
+.addSolutionButton:hover {
+  background: #6B8DA1;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(124, 158, 178, 0.4);
+}
+
+/* Legacy styles kept for compatibility */
+.batchIndicator {
+  background: var(--color-lavender, #D9D4E7);
+  padding: var(--spacing-sm) var(--spacing-md);
+  border-radius: 20px;
+  text-align: center;
+  font-size: 0.875rem;
+  color: #6B5B7D;
+  font-weight: 500;
 }
 
 .instructions {
@@ -70,24 +329,26 @@
 }
 
 .batchButton {
-  background: var(--btn-primary);
+  background: var(--color-primary, #7C9EB2);
   color: white;
   padding: var(--spacing-md) var(--spacing-xl);
-  border-radius: 8px;
+  border-radius: 9999px;
   font-size: 1rem;
   font-weight: 500;
   min-width: 200px;
   transition: all 0.2s ease;
+  border: none;
+  cursor: pointer;
 }
 
 .batchButton:hover:not(.disabled) {
-  background: #4a73cc;
+  background: #6B8DA1;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(95, 136, 229, 0.3);
+  box-shadow: 0 4px 12px rgba(124, 158, 178, 0.3);
 }
 
 .batchButton.disabled {
-  background: var(--btn-secondary);
+  background: var(--btn-secondary, #e2e8f0);
   color: var(--text-secondary);
   cursor: not-allowed;
 }
@@ -100,12 +361,12 @@
 }
 
 .completionMessage {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--color-primary, #7C9EB2) 0%, var(--color-lavender, #D9D4E7) 100%);
   color: white;
   padding: var(--spacing-xl);
-  border-radius: 12px;
+  border-radius: 24px;
   text-align: center;
-  box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+  box-shadow: 0 10px 30px rgba(124, 158, 178, 0.4);
   animation: slideIn 0.5s ease;
 }
 
@@ -138,53 +399,267 @@
   }
 }
 
-/* Add Solution Button - Fixed at bottom */
-.addSolutionContainer {
+/* Bottom Container */
+.bottomContainer {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(to top, #ffffff 70%, transparent);
-  padding: var(--spacing-lg);
+  background: linear-gradient(to top, #ffffff 80%, transparent);
+  padding: var(--spacing-md) var(--spacing-lg);
   padding-bottom: calc(var(--spacing-lg) + env(safe-area-inset-bottom, 0px));
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-sm);
   z-index: 100;
 }
 
-.addSolutionButton {
-  background: var(--btn-primary);
-  color: white;
-  padding: var(--spacing-md) var(--spacing-2xl);
-  border-radius: var(--radius-full);
-  font-size: 1.125rem;
+/* Progress Indicator */
+.progressIndicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-lg);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 9999px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  font-size: 0.875rem;
+}
+
+.progressStat {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  color: var(--text-secondary);
+}
+
+.progressIcon {
+  font-size: 1rem;
+}
+
+.progressValue {
   font-weight: 600;
-  min-width: 250px;
-  transition: all 0.3s ease;
-  box-shadow: var(--shadow-lg);
+  color: #10b981;
 }
 
-.addSolutionButton:hover {
-  background: var(--btn-primary-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(27, 38, 80, 0.4);
+.progressLabel {
+  color: var(--text-secondary);
 }
 
-.addSolutionButton:active {
-  transform: translateY(0);
+.progressDivider {
+  width: 1px;
+  height: 20px;
+  background: var(--border-light, #e0e0e0);
 }
 
+/* Mobile responsive */
 @media (max-width: 768px) {
   .feed {
-    gap: var(--spacing-lg);
+    gap: var(--spacing-md);
+  }
+
+  .cardStack {
+    height: 240px;
+    margin: var(--spacing-sm);
+  }
+
+  .progressBar {
+    margin: 0 var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .evaluationArea {
+    padding: var(--spacing-sm);
+  }
+
+  .actionButtons {
+    flex-direction: column;
+    padding: 0 var(--spacing-md);
+  }
+
+  .viewProgressButton,
+  .addSolutionButton {
+    max-width: none;
+    width: 100%;
   }
 
   .batchButton {
     width: 100%;
   }
 
-  .addSolutionButton {
+  .bottomContainer .actionButtons {
     width: 100%;
-    min-width: unset;
+    padding: 0 var(--spacing-sm);
+  }
+
+  .progressIndicator {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Extra small screens */
+@media (max-width: 380px) {
+  .cardStack {
+    height: 220px;
+  }
+
+  .emptyState {
+    padding: var(--spacing-lg);
+    min-height: 300px;
+  }
+
+  .emptyState h3 {
+    font-size: 1.25rem;
+  }
+
+  .batchComplete h3 {
+    font-size: 1.25rem;
+  }
+
+  .completeIcon {
+    font-size: 3rem;
+  }
+}
+
+/* ============================================ */
+/* RATING CONFIRMATION MODAL (Learning Mode)   */
+/* ============================================ */
+
+.confirmationOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease-out;
+  padding: 1rem;
+}
+
+.confirmationModal {
+  background: var(--card-default, #fff);
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+  box-shadow: var(--shadow-lg, 0 20px 60px rgba(0, 0, 0, 0.3));
+  animation: slideIn 0.3s ease-out;
+}
+
+/* Variant colors for the confirmation modal */
+.confirmation_strongly-agree {
+  background: var(--rating-strongly-agree, #dcfce7);
+  border: 2px solid #22c55e;
+}
+
+.confirmation_agree {
+  background: var(--rating-agree, #d1fae5);
+  border: 2px solid #6ee7b7;
+}
+
+.confirmation_neutral {
+  background: var(--rating-neutral, #f1f5f9);
+  border: 2px solid #cbd5e1;
+}
+
+.confirmation_disagree {
+  background: var(--rating-disagree, #fef3c7);
+  border: 2px solid #fcd34d;
+}
+
+.confirmation_strongly-disagree {
+  background: var(--rating-strongly-disagree, #fecaca);
+  border: 2px solid #f87171;
+}
+
+.confirmationEmoji {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.confirmationTitle {
+  font-size: 1.125rem;
+  color: var(--text-secondary, #64748b);
+  margin: 0 0 0.5rem;
+  font-weight: 500;
+}
+
+.confirmationRating {
+  font-size: 1.5rem;
+  color: var(--text-primary, #1e293b);
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+.confirmationQuestion {
+  font-size: 1rem;
+  color: var(--text-body, #475569);
+  margin: 0 0 1.5rem;
+}
+
+.confirmationButtons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.confirmationButton {
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.confirmationCancel {
+  background: var(--btn-secondary, #e2e8f0);
+  color: var(--text-primary, #1e293b);
+}
+
+.confirmationCancel:hover {
+  background: #d1d5db;
+}
+
+.confirmationConfirm {
+  background: var(--btn-primary, #5f88e5);
+  color: white;
+}
+
+.confirmationConfirm:hover {
+  background: var(--btn-primary-hover, #4a6fc4);
+}
+
+@media (max-width: 768px) {
+  .confirmationModal {
+    padding: 1.25rem;
+  }
+
+  .confirmationEmoji {
+    font-size: 3rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .confirmationTitle {
+    font-size: 1rem;
+  }
+
+  .confirmationRating {
+    font-size: 1.25rem;
+  }
+
+  .confirmationButtons {
+    gap: 0.75rem;
+  }
+
+  .confirmationButton {
+    padding: 0.625rem 1.25rem;
+    font-size: 0.9375rem;
   }
 }

@@ -1,5 +1,5 @@
 import { FC } from 'react';
-import { UserDemographicQuestion } from 'delib-npm';
+import { UserDemographicQuestion } from '@freedi/shared-types';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
 import CheckIcon from '@/assets/icons/checkIcon.svg?react';
 import styles from '../RoomAssignment.module.scss';
@@ -52,9 +52,7 @@ const QuestionSelector: FC<QuestionSelectorProps> = ({
 						>
 							{isSelected && <CheckIcon />}
 						</div>
-						<span className={styles.questionSelector__questionText}>
-							{question.question}
-						</span>
+						<span className={styles.questionSelector__questionText}>{question.question}</span>
 						{optionCount > 0 && (
 							<span className={styles.questionSelector__optionCount}>
 								{optionCount} {t('options')}

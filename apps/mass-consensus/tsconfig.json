@@ -18,12 +18,23 @@
         "name": "next"
       }
     ],
+    "typeRoots": ["./node_modules/@types", "../../node_modules/@types"],
     "paths": {
       "@/*": ["./src/*"],
       "@freedi/shared-i18n": ["../../packages/shared-i18n/src/index.ts"],
-      "@freedi/shared-i18n/*": ["../../packages/shared-i18n/src/*"]
+      "@freedi/shared-i18n/*": ["../../packages/shared-i18n/src/*"],
+      "@freedi/shared-utils": ["../../packages/shared-utils/src/index.ts"],
+      "@freedi/shared-utils/*": ["../../packages/shared-utils/src/*"]
     }
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "include": [
+    "next-env.d.ts",
+    "**/*.ts",
+    "**/*.tsx",
+    ".next/types/**/*.ts",
+    "../../packages/shared-i18n/src/**/*.ts",
+    "../../packages/shared-i18n/src/**/*.tsx",
+    "../../packages/shared-utils/src/**/*.ts"
+  ],
   "exclude": ["node_modules"]
 }

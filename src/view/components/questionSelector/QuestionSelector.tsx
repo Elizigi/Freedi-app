@@ -3,16 +3,14 @@ import styles from './QuestionSelector.module.scss';
 import { StatementContext } from '@/view/pages/statement/StatementCont';
 import { useTranslation } from '@/controllers/hooks/useTranslation';
 import { updateQuestionType } from '@/controllers/db/statementSettings/setStatementSettings';
-import { Link } from 'react-router';
-import { MassConsensusPageUrls, QuestionType } from 'delib-npm';
-import { getDefaultQuestionType } from '@/model/questionTypeDefaults';
+import { QuestionType } from '@freedi/shared-types';
+import { getDefaultQuestionType } from '@/models/questionTypeDefaults';
+import { getMassConsensusQuestionUrl } from '@/controllers/db/config';
 
 const QuestionSelector: FC = () => {
 	const { statement } = useContext(StatementContext);
-	const { t, currentLanguage } = useTranslation();
-	const handleChangeQuestionType = (
-		ev: React.ChangeEvent<HTMLSelectElement>
-	) => {
+	const { t } = useTranslation();
+	const handleChangeQuestionType = (ev: React.ChangeEvent<HTMLSelectElement>) => {
 		if (statement)
 			updateQuestionType({
 				statement,
@@ -25,26 +23,21 @@ const QuestionSelector: FC = () => {
 			<select
 				onChange={handleChangeQuestionType}
 				className={styles.questionSelector}
-				defaultValue={
-					statement?.questionSettings?.questionType ??
-					getDefaultQuestionType()
-				}
+				defaultValue={statement?.questionSettings?.questionType ?? getDefaultQuestionType()}
 			>
-				<option value={QuestionType.multiStage}>
-					{t('Simple Question')}
-				</option>
-				<option value={QuestionType.massConsensus}>
-					{t('Mass Consensus')}
-				</option>
+				<option value={QuestionType.multiStage}>{t('Simple Question')}</option>
+				<option value={QuestionType.massConsensus}>{t('Mass Consensus')}</option>
+				<option value={QuestionType.compound}>{t('Compound Question')}</option>
 			</select>
-			{statement?.questionSettings?.questionType ===
-				QuestionType.massConsensus && (
-					<Link
-						to={`/mass-consensus/${statement.statementId}/${MassConsensusPageUrls.introduction}?lang=${currentLanguage}`}
-					>
-						{t('Mass Consensus')}
-					</Link>
-				)}
+			{statement?.questionSettings?.questionType === QuestionType.massConsensus && statement && (
+				<a
+					href={getMassConsensusQuestionUrl(statement.statementId)}
+					target="_blank"
+					rel="noopener noreferrer"
+				>
+					{t('Open Mass Consensus')}
+				</a>
+			)}
 		</>
 	);
 };

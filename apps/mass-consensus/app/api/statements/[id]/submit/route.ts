@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getFirestoreAdmin } from '@/lib/firebase/admin';
-import { Collections, StatementType, Statement } from 'delib-npm';
+import { Collections, StatementType, createStatementObject, SourceApp } from '@freedi/shared-types';
 import { getUserIdFromCookie, getAnonymousDisplayName } from '@/lib/utils/user';
 import { logError, ValidationError } from '@/lib/utils/errorHandling';
 import { VALIDATION, ERROR_MESSAGES } from '@/constants/common';
+import { textToParagraphs } from '@/lib/utils/paragraphUtils';
+import { checkRateLimit, RATE_LIMITS } from '@/lib/utils/rateLimit';
+import { logger } from '@/lib/utils/logger';
+import { FieldValue } from 'firebase-admin/firestore';
 import type { Firestore } from 'firebase-admin/firestore';
 
 /**
@@ -14,7 +18,6 @@ async function handleExistingSolution(
   statementId: string,
   questionId: string,
   userId: string,
-  questionData: FirebaseFirestore.DocumentData | undefined
 ) {
   // Check if statement exists
   const statementDoc = await db
@@ -45,25 +48,25 @@ async function handleExistingSolution(
     lastUpdate: Date.now(),
   };
 
-  // Transaction to create evaluation and update counters
-  await db.runTransaction(async (transaction) => {
-    transaction.set(evaluationRef, evaluation);
+  // Use FieldValue.increment for atomic counter updates (no stale reads)
+  const statementRef = db.collection(Collections.statements).doc(statementId);
+  const questionRef = db.collection(Collections.statements).doc(questionId);
+  const batch = db.batch();
 
-    // Update statement evaluation count
-    const statementRef = db.collection(Collections.statements).doc(statementId);
-    transaction.update(statementRef, {
-      evaluations: (statementDoc.data()?.evaluations || 0) + 1,
-      consensus: (statementDoc.data()?.consensus || 0) + 1,
-      lastUpdate: Date.now(),
-    });
+  batch.set(evaluationRef, evaluation);
 
-    // Update parent question
-    const questionRef = db.collection(Collections.statements).doc(questionId);
-    transaction.update(questionRef, {
-      suggestions: (questionData?.suggestions || 0) + 1,
-      lastUpdate: Date.now(),
-    });
+  batch.update(statementRef, {
+    evaluations: FieldValue.increment(1),
+    consensus: FieldValue.increment(1),
+    lastUpdate: Date.now(),
   });
+
+  batch.update(questionRef, {
+    suggestions: FieldValue.increment(1),
+    lastUpdate: Date.now(),
+  });
+
+  await batch.commit();
 
   return NextResponse.json({
     success: true,
@@ -79,8 +82,16 @@ async function handleExistingSolution(
  */
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id: questionId } = await params;
+
+  // Rate limit check - stricter for write operations
+  const rateLimitResponse = checkRateLimit(request, RATE_LIMITS.WRITE);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   try {
     const body = await request.json();
     const { solutionText, userId: bodyUserId, userName, existingStatementId, generatedTitle, generatedDescription } = body;
@@ -123,8 +134,6 @@ export async function POST(
         { status: 400 }
       );
     }
-
-    const questionId = params.id;
     const db = getFirestoreAdmin();
 
     // Check if question exists
@@ -149,7 +158,6 @@ export async function POST(
         existingStatementId,
         questionId,
         userId,
-        questionData
       );
     }
 
@@ -188,8 +196,8 @@ export async function POST(
     let title: string;
     let description: string;
 
-    console.info('[Submit] AI generated title:', generatedTitle);
-    console.info('[Submit] AI generated description:', generatedDescription);
+    logger.info('[Submit] AI generated title:', generatedTitle);
+    logger.info('[Submit] AI generated description:', generatedDescription);
 
     if (generatedTitle && generatedDescription) {
       // Use AI-generated values
@@ -208,12 +216,14 @@ export async function POST(
       }
     }
 
-    const newSolution: Partial<Statement> = {
+    // Use shared utility to create properly structured statement
+    const newSolution = createStatementObject({
       statementId: statementRef.id,
       statement: title,
-      description: description,
+      paragraphs: textToParagraphs(description),
       statementType: StatementType.option,
       parentId: questionId,
+      topParentId: questionData?.topParentId || questionId,
       creatorId: userId,
       creator: {
         uid: userId,
@@ -222,12 +232,15 @@ export async function POST(
         photoURL: '',
         isAnonymous: true,
       },
-      createdAt: Date.now(),
-      lastUpdate: Date.now(),
-      randomSeed: Math.random(), // For random sampling
-      consensus: 0,
-      hide: false,
-    };
+      sourceApp: SourceApp.MASS_CONSENSUS,
+    });
+
+    if (!newSolution) {
+      return NextResponse.json(
+        { error: 'Failed to create solution' },
+        { status: 500 }
+      );
+    }
 
     // Create automatic +1 evaluation for the new solution
     const evaluationRef = db.collection(Collections.evaluations).doc();
@@ -241,24 +254,24 @@ export async function POST(
       lastUpdate: Date.now(),
     };
 
-    // Transaction to create solution, evaluation, and update question
-    await db.runTransaction(async (transaction) => {
-      // Create new solution
-      transaction.set(statementRef, newSolution);
+    // Batch to create solution, evaluation, and update question counters atomically
+    const writeBatch = db.batch();
 
-      // Create automatic evaluation
-      transaction.set(evaluationRef, evaluation);
+    // Create new solution
+    writeBatch.set(statementRef, newSolution);
 
-      // Update parent question
-      const questionRef = db.collection(Collections.statements).doc(questionId);
-      const questionData = questionDoc.data();
+    // Create automatic evaluation
+    writeBatch.set(evaluationRef, evaluation);
 
-      transaction.update(questionRef, {
-        suggestions: (questionData?.suggestions || 0) + 1,
-        numberOfOptions: (questionData?.numberOfOptions || 0) + 1,
-        lastUpdate: Date.now(),
-      });
+    // Update parent question using FieldValue.increment for atomic counters
+    const questionRef = db.collection(Collections.statements).doc(questionId);
+    writeBatch.update(questionRef, {
+      suggestions: FieldValue.increment(1),
+      numberOfOptions: FieldValue.increment(1),
+      lastUpdate: Date.now(),
     });
+
+    await writeBatch.commit();
 
     return NextResponse.json({
       success: true,
@@ -268,15 +281,9 @@ export async function POST(
       evaluation,
     });
   } catch (error) {
-    const body = await request.json().catch(() => ({}));
-    const { userId } = body;
-    const questionId = params.id;
-
     logError(error, {
       operation: 'api.submit',
-      userId,
-      questionId,
-      metadata: { solutionTextLength: body.solutionText?.length },
+      metadata: { questionId },
     });
 
     return NextResponse.json(

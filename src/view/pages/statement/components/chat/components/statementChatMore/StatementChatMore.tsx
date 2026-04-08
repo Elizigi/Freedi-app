@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router';
 import ChatIcon from '@/assets/icons/roundedChatDotIcon.svg?react';
 
 // Types and Redux
-import { SimpleStatement, Statement, NotificationType } from 'delib-npm';
+import { SimpleStatement, Statement, NotificationType } from '@freedi/shared-types';
 import { useSelector } from 'react-redux';
 import { inAppNotificationsSelector } from '@/redux/notificationsSlice/notificationsSlice';
 import { creatorSelector } from '@/redux/creator/creatorSlice';
@@ -70,12 +70,12 @@ const StatementChatMore: FC<Props> = ({
 
 	// Filter for UNREAD notifications only (with fallback for missing field)
 	const unreadNotificationsList: NotificationType[] = useSelector(
-		inAppNotificationsSelector
+		inAppNotificationsSelector,
 	).filter(
 		(n) =>
 			n.creatorId !== creator?.uid &&
 			n.parentId === statement.statementId &&
-			(!n.read || n.read === undefined) // Treat missing field as unread for backward compatibility
+			(!n.read || n.read === undefined), // Treat missing field as unread for backward compatibility
 	);
 
 	const unreadCount = unreadNotificationsList.length;
@@ -83,7 +83,7 @@ const StatementChatMore: FC<Props> = ({
 	const hasMessages = totalMessages > 0 || unreadCount > 0;
 	const hasUnread = unreadCount > 0;
 	// Display count: show total if available, otherwise show unread as indicator
-	const displayCount = totalMessages > 0 ? totalMessages : (unreadCount > 0 ? unreadCount : 0);
+	const displayCount = totalMessages > 0 ? totalMessages : unreadCount > 0 ? unreadCount : 0;
 
 	const handleClick = async () => {
 		if (useLink) {
@@ -164,21 +164,14 @@ const StatementChatMore: FC<Props> = ({
 			{content}
 		</button>
 	) : (
-		<div
+		<button
+			type="button"
 			className={styles.statementChatMore}
 			onClick={handleClick}
-			role="button"
-			tabIndex={0}
-			onKeyDown={(e) => {
-				if (e.key === 'Enter' || e.key === ' ') {
-					e.preventDefault();
-					handleClick();
-				}
-			}}
 			aria-label={ariaLabel}
 		>
 			{content}
-		</div>
+		</button>
 	);
 };
 

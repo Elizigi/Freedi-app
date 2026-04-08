@@ -1,8 +1,28 @@
-import { store } from "@/redux/store";
-import { collection, deleteDoc, getDocs, limit, onSnapshot, orderBy, query, Unsubscribe, where, doc, updateDoc, writeBatch } from "firebase/firestore";
-import { DB } from "../config";
-import { Collections, NotificationType } from "delib-npm";
-import { setInAppNotificationsAll, markNotificationAsRead, markNotificationsAsRead, markStatementNotificationsAsRead } from "@/redux/notificationsSlice/notificationsSlice";
+import { store } from '@/redux/store';
+import {
+	collection,
+	deleteDoc,
+	getDocs,
+	limit,
+	onSnapshot,
+	orderBy,
+	query,
+	Unsubscribe,
+	where,
+	doc,
+	updateDoc,
+	writeBatch,
+} from 'firebase/firestore';
+import { DB } from '../config';
+import { Collections, NotificationType } from '@freedi/shared-types';
+import {
+	setInAppNotificationsAll,
+	markNotificationAsRead,
+	markNotificationsAsRead,
+	markStatementNotificationsAsRead,
+	clearAllInAppNotifications,
+} from '@/redux/notificationsSlice/notificationsSlice';
+import { logError } from '@/utils/errorHandling';
 
 export function listenToInAppNotifications(): Unsubscribe {
 	try {
@@ -13,12 +33,13 @@ export function listenToInAppNotifications(): Unsubscribe {
 		const inAppNotificationsRef = collection(DB, Collections.inAppNotifications);
 		const q = query(
 			inAppNotificationsRef,
-			where("userId", '==', user.uid),
-			orderBy("createdAt", "desc"),
-			limit(100)
+			where('userId', '==', user.uid),
+			orderBy('createdAt', 'desc'),
+			limit(100),
 		);
 
-		return onSnapshot(q,
+		return onSnapshot(
+			q,
 			// Success callback with error handling inside
 			(inAppNotDBs) => {
 				try {
@@ -31,52 +52,99 @@ export function listenToInAppNotifications(): Unsubscribe {
 							// Convert readAt from Firestore Timestamp to milliseconds if it exists
 							readAt: data.readAt?.toMillis ? data.readAt.toMillis() : data.readAt,
 							// Also ensure createdAt is in milliseconds
-							createdAt: data.createdAt?.toMillis ? data.createdAt.toMillis() : data.createdAt
+							createdAt: data.createdAt?.toMillis ? data.createdAt.toMillis() : data.createdAt,
 						} as NotificationType;
 						notifications.push(inAppNot);
 					});
 					store.dispatch(setInAppNotificationsAll(notifications));
 				} catch (error) {
-					console.error("Error processing notifications snapshot:", error);
+					logError(error, {
+						operation: 'inAppNotifications.db_inAppNotifications.unknown',
+						metadata: { message: 'Error processing notifications snapshot:' },
+					});
 					// Still allow the listener to continue functioning
 				}
 			},
 			// Error callback for the onSnapshot itself
-			(error) => {
-				console.error("Error in notifications snapshot listener:", error);
-			}
+			(error: Error & { code?: string }) => {
+				// Permission errors are expected during sign-out when Firebase
+				// revokes the auth token before React cleanup unsubscribes the listener
+				if (
+					error.code === 'permission-denied' ||
+					error.message?.includes('Missing or insufficient permissions')
+				) {
+					store.dispatch(setInAppNotificationsAll([]));
+
+					return;
+				}
+
+				logError(error, {
+					operation: 'inAppNotifications.db_inAppNotifications.snapshot',
+					metadata: { message: 'Error in notifications snapshot listener:' },
+				});
+			},
 		);
 	} catch (error) {
-		console.error("In listenToInAppNotifications", error.message);
+		logError(new Error('In listenToInAppNotifications'), {
+			operation: 'inAppNotifications.db_inAppNotifications.unknown',
+			metadata: { detail: error.message },
+		});
 
-		return () => { return; };
+		return () => {
+			return;
+		};
 	}
 }
 
 export async function clearInAppNotifications(statementId: string) {
 	try {
 		if (!statementId) {
-			console.error("clearInAppNotifications: statementId is required");
-			
-return;
+			logError(new Error('clearInAppNotifications: statementId is required'), {
+				operation: 'inAppNotifications.db_inAppNotifications.clearInAppNotifications',
+			});
+
+			return;
 		}
-		
+
 		const user = store.getState().creator.creator;
 		if (!user) {
-			console.error("clearInAppNotifications: User not found");
-			
-return;
+			logError(new Error('clearInAppNotifications: User not found'), {
+				operation: 'inAppNotifications.db_inAppNotifications.clearInAppNotifications',
+			});
+
+			return;
 		}
-		
+
 		const inAppNotificationsRef = collection(DB, Collections.inAppNotifications);
-		const q = query(inAppNotificationsRef, where("parentId", "==", statementId), where("userId", "==", user.uid));
+		const q = query(
+			inAppNotificationsRef,
+			where('parentId', '==', statementId),
+			where('userId', '==', user.uid),
+		);
 
 		const snapshot = await getDocs(q);
-		snapshot.forEach((ntf) => {
-			deleteDoc(ntf.ref);
+		const deletePromises = snapshot.docs.map((ntf) =>
+			deleteDoc(ntf.ref).catch(() => {
+				// Ignore errors from already-deleted documents
+			}),
+		);
+		await Promise.all(deletePromises);
+	} catch (error: unknown) {
+		// Permission errors are expected during sign-out when Firebase
+		// revokes the auth token before React cleanup unsubscribes/unmounts
+		const firebaseError = error as { code?: string };
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		if (
+			firebaseError.code === 'permission-denied' ||
+			errorMessage.includes('Missing or insufficient permissions')
+		) {
+			return;
+		}
+
+		logError(new Error('In clearInAppNotifications'), {
+			operation: 'inAppNotifications.db_inAppNotifications.clearInAppNotifications',
+			metadata: { detail: errorMessage },
 		});
-	} catch (error) {
-		console.error("In clearInAppNotifications", error.message);
 	}
 }
 
@@ -85,22 +153,27 @@ export async function markNotificationAsReadDB(notificationId: string): Promise<
 	try {
 		const user = store.getState().creator.creator;
 		if (!user) {
-			console.error("markNotificationAsReadDB: User not found");
-			
-return;
+			logError(new Error('markNotificationAsReadDB: User not found'), {
+				operation: 'inAppNotifications.db_inAppNotifications.markNotificationAsReadDB',
+			});
+
+			return;
 		}
 
 		// Update in Firestore
 		const notificationRef = doc(DB, Collections.inAppNotifications, notificationId);
 		await updateDoc(notificationRef, {
 			read: true,
-			readAt: Date.now()
+			readAt: Date.now(),
 		});
 
 		// Update in Redux
 		store.dispatch(markNotificationAsRead(notificationId));
 	} catch (error) {
-		console.error("In markNotificationAsReadDB", error.message);
+		logError(new Error('In markNotificationAsReadDB'), {
+			operation: 'inAppNotifications.db_inAppNotifications.markNotificationAsReadDB',
+			metadata: { detail: error.message },
+		});
 	}
 }
 
@@ -109,9 +182,12 @@ export async function markMultipleNotificationsAsReadDB(notificationIds: string[
 	try {
 		const user = store.getState().creator.creator;
 		if (!user || !notificationIds.length) {
-			console.error("markMultipleNotificationsAsReadDB: User not found or no notification IDs");
-			
-return;
+			logError(
+				new Error('markMultipleNotificationsAsReadDB: User not found or no notification IDs'),
+				{ operation: 'inAppNotifications.db_inAppNotifications.markMultipleNotificationsAsReadDB' },
+			);
+
+			return;
 		}
 
 		// Batch update in Firestore
@@ -121,7 +197,7 @@ return;
 			const notificationRef = doc(DB, Collections.inAppNotifications, notificationId);
 			batch.update(notificationRef, {
 				read: true,
-				readAt: now
+				readAt: now,
 			});
 		});
 		await batch.commit();
@@ -129,7 +205,10 @@ return;
 		// Update in Redux
 		store.dispatch(markNotificationsAsRead(notificationIds));
 	} catch (error) {
-		console.error("In markMultipleNotificationsAsReadDB", error.message);
+		logError(new Error('In markMultipleNotificationsAsReadDB'), {
+			operation: 'inAppNotifications.db_inAppNotifications.now',
+			metadata: { detail: error.message },
+		});
 	}
 }
 
@@ -138,22 +217,24 @@ export async function markStatementNotificationsAsReadDB(statementId: string): P
 	try {
 		const user = store.getState().creator.creator;
 		if (!user || !statementId) {
-			console.error("markStatementNotificationsAsReadDB: User not found or no statement ID");
-			
-return;
+			logError(new Error('markStatementNotificationsAsReadDB: User not found or no statement ID'), {
+				operation: 'inAppNotifications.db_inAppNotifications.markStatementNotificationsAsReadDB',
+			});
+
+			return;
 		}
 
 		// Query notifications for this statement
 		const notificationsRef = collection(DB, Collections.inAppNotifications);
 		const q = query(
 			notificationsRef,
-			where("userId", "==", user.uid),
-			where("parentId", "==", statementId),
-			where("read", "==", false)
+			where('userId', '==', user.uid),
+			where('parentId', '==', statementId),
+			where('read', '==', false),
 		);
 
 		const snapshot = await getDocs(q);
-		
+
 		if (!snapshot.empty) {
 			// Batch update in Firestore
 			const batch = writeBatch(DB);
@@ -162,7 +243,7 @@ return;
 				batch.update(docSnapshot.ref, {
 					read: true,
 					readAt: now,
-					viewedInContext: true
+					viewedInContext: true,
 				});
 			});
 			await batch.commit();
@@ -171,7 +252,10 @@ return;
 			store.dispatch(markStatementNotificationsAsRead(statementId));
 		}
 	} catch (error) {
-		console.error("In markStatementNotificationsAsReadDB", error.message);
+		logError(new Error('In markStatementNotificationsAsReadDB'), {
+			operation: 'inAppNotifications.db_inAppNotifications.now',
+			metadata: { detail: error.message },
+		});
 	}
 }
 
@@ -180,9 +264,7 @@ export async function markNotificationsAsViewedInListDB(notificationIds: string[
 	try {
 		const user = store.getState().creator.creator;
 		if (!user || !notificationIds.length) {
-			console.error("markNotificationsAsViewedInListDB: User not found or no notification IDs");
-			
-return;
+			return;
 		}
 
 		// Batch update in Firestore
@@ -190,11 +272,63 @@ return;
 		notificationIds.forEach((notificationId) => {
 			const notificationRef = doc(DB, Collections.inAppNotifications, notificationId);
 			batch.update(notificationRef, {
-				viewedInList: true
+				viewedInList: true,
 			});
 		});
 		await batch.commit();
+	} catch (error: unknown) {
+		// Permission errors are expected when the user signs out or navigates away
+		// before the delayed batch commit fires — silently ignore them
+		const errorMessage = error instanceof Error ? error.message : String(error);
+		if (errorMessage.includes('Missing or insufficient permissions')) {
+			return;
+		}
+
+		logError(new Error('In markNotificationsAsViewedInListDB'), {
+			operation: 'inAppNotifications.db_inAppNotifications.batch',
+			metadata: { detail: errorMessage },
+		});
+	}
+}
+
+// Clear all notifications for the current user from Firestore and Redux
+export async function clearAllInAppNotificationsDB(): Promise<void> {
+	try {
+		const user = store.getState().creator.creator;
+		if (!user) {
+			logError(new Error('clearAllInAppNotificationsDB: User not found'), {
+				operation: 'inAppNotifications.db_inAppNotifications.clearAllInAppNotificationsDB',
+			});
+
+			return;
+		}
+
+		// Clear from Redux immediately so UI updates right away
+		store.dispatch(clearAllInAppNotifications());
+
+		const inAppNotificationsRef = collection(DB, Collections.inAppNotifications);
+		const q = query(inAppNotificationsRef, where('userId', '==', user.uid));
+
+		const snapshot = await getDocs(q);
+
+		if (snapshot.empty) return;
+
+		// Delete in batches of 500 (Firestore limit)
+		const batchSize = 500;
+		const docs = snapshot.docs;
+
+		for (let i = 0; i < docs.length; i += batchSize) {
+			const batch = writeBatch(DB);
+			const chunk = docs.slice(i, i + batchSize);
+			chunk.forEach((docSnapshot) => {
+				batch.delete(docSnapshot.ref);
+			});
+			await batch.commit();
+		}
 	} catch (error) {
-		console.error("In markNotificationsAsViewedInListDB", error.message);
+		logError(error, {
+			operation: 'inAppNotifications.db_inAppNotifications.clearAllInAppNotificationsDB',
+			userId: store.getState().creator.creator?.uid,
+		});
 	}
 }

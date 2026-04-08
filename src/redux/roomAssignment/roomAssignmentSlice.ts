@@ -1,6 +1,5 @@
 import { createSlice, PayloadAction, createSelector } from '@reduxjs/toolkit';
-import { RootState } from '../types';
-import { RoomSettings, Room, RoomParticipant } from 'delib-npm';
+import { RoomSettings, Room, RoomParticipant } from '@freedi/shared-types';
 
 interface RoomAssignmentState {
 	settings: RoomSettings[];
@@ -28,7 +27,7 @@ export const roomAssignmentSlice = createSlice({
 		setRoomSettings: (state, action: PayloadAction<RoomSettings>) => {
 			const newSettings = action.payload;
 			const existingIndex = state.settings.findIndex(
-				(s) => s.settingsId === newSettings.settingsId
+				(s) => s.settingsId === newSettings.settingsId,
 			);
 			if (existingIndex !== -1) {
 				state.settings[existingIndex] = newSettings;
@@ -66,6 +65,17 @@ export const roomAssignmentSlice = createSlice({
 		setRoomsArray: (state, action: PayloadAction<Room[]>) => {
 			state.rooms = action.payload;
 		},
+		// Merge rooms for a specific settingsId (keeps rooms from other settings)
+		mergeRoomsBySettingsId: (
+			state,
+			action: PayloadAction<{ settingsId: string; rooms: Room[] }>,
+		) => {
+			const { settingsId, rooms: newRooms } = action.payload;
+			// Remove old rooms for this settingsId
+			state.rooms = state.rooms.filter((r) => r.settingsId !== settingsId);
+			// Add the new rooms
+			state.rooms.push(...newRooms);
+		},
 		removeRoom: (state, action: PayloadAction<string>) => {
 			const roomId = action.payload;
 			state.rooms = state.rooms.filter((r) => r.roomId !== roomId);
@@ -75,7 +85,7 @@ export const roomAssignmentSlice = createSlice({
 		setParticipant: (state, action: PayloadAction<RoomParticipant>) => {
 			const newParticipant = action.payload;
 			const existingIndex = state.participants.findIndex(
-				(p) => p.participantId === newParticipant.participantId
+				(p) => p.participantId === newParticipant.participantId,
 			);
 			if (existingIndex !== -1) {
 				state.participants[existingIndex] = newParticipant;
@@ -86,11 +96,20 @@ export const roomAssignmentSlice = createSlice({
 		setParticipantsArray: (state, action: PayloadAction<RoomParticipant[]>) => {
 			state.participants = action.payload;
 		},
+		// Merge participants for a specific settingsId (keeps participants from other settings)
+		mergeParticipantsBySettingsId: (
+			state,
+			action: PayloadAction<{ settingsId: string; participants: RoomParticipant[] }>,
+		) => {
+			const { settingsId, participants: newParticipants } = action.payload;
+			// Remove old participants for this settingsId
+			state.participants = state.participants.filter((p) => p.settingsId !== settingsId);
+			// Add the new participants
+			state.participants.push(...newParticipants);
+		},
 		removeParticipant: (state, action: PayloadAction<string>) => {
 			const participantId = action.payload;
-			state.participants = state.participants.filter(
-				(p) => p.participantId !== participantId
-			);
+			state.participants = state.participants.filter((p) => p.participantId !== participantId);
 		},
 
 		// My assignment (current user's room)
@@ -110,10 +129,12 @@ export const roomAssignmentSlice = createSlice({
 	},
 });
 
-// Base selectors
-const getSettings = (state: RootState) => state.roomAssignment.settings;
-const getRooms = (state: RootState) => state.roomAssignment.rooms;
-const getParticipants = (state: RootState) => state.roomAssignment.participants;
+// Base selectors using narrowly-typed state parameter
+const getSettings = (state: { roomAssignment: RoomAssignmentState }) =>
+	state.roomAssignment.settings;
+const getRooms = (state: { roomAssignment: RoomAssignmentState }) => state.roomAssignment.rooms;
+const getParticipants = (state: { roomAssignment: RoomAssignmentState }) =>
+	state.roomAssignment.participants;
 
 // Export actions
 export const {
@@ -123,9 +144,11 @@ export const {
 	clearRoomSettings,
 	setRoom,
 	setRoomsArray,
+	mergeRoomsBySettingsId,
 	removeRoom,
 	setParticipant,
 	setParticipantsArray,
+	mergeParticipantsBySettingsId,
 	removeParticipant,
 	setMyAssignment,
 	setLoading,
@@ -137,14 +160,15 @@ export const {
 /**
  * Select all room settings
  */
-export const selectAllRoomSettings = (state: RootState) => state.roomAssignment.settings;
+export const selectAllRoomSettings = (state: { roomAssignment: RoomAssignmentState }) =>
+	state.roomAssignment.settings;
 
 /**
  * Select active settings for a specific statement
  */
 export const selectActiveSettingsByStatementId = (statementId: string) =>
 	createSelector([getSettings], (settings) =>
-		settings.find((s) => s.statementId === statementId && s.status === 'active')
+		settings.find((s) => s.statementId === statementId && s.status === 'active'),
 	);
 
 /**
@@ -152,7 +176,7 @@ export const selectActiveSettingsByStatementId = (statementId: string) =>
  */
 export const selectSettingsByStatementId = (statementId: string) =>
 	createSelector([getSettings], (settings) =>
-		settings.filter((s) => s.statementId === statementId)
+		settings.filter((s) => s.statementId === statementId),
 	);
 
 /**
@@ -160,7 +184,7 @@ export const selectSettingsByStatementId = (statementId: string) =>
  */
 export const selectRoomsBySettingsId = (settingsId: string) =>
 	createSelector([getRooms], (rooms) =>
-		rooms.filter((r) => r.settingsId === settingsId).sort((a, b) => a.roomNumber - b.roomNumber)
+		rooms.filter((r) => r.settingsId === settingsId).sort((a, b) => a.roomNumber - b.roomNumber),
 	);
 
 /**
@@ -168,7 +192,7 @@ export const selectRoomsBySettingsId = (settingsId: string) =>
  */
 export const selectRoomsByStatementId = (statementId: string) =>
 	createSelector([getRooms], (rooms) =>
-		rooms.filter((r) => r.statementId === statementId).sort((a, b) => a.roomNumber - b.roomNumber)
+		rooms.filter((r) => r.statementId === statementId).sort((a, b) => a.roomNumber - b.roomNumber),
 	);
 
 /**
@@ -176,7 +200,7 @@ export const selectRoomsByStatementId = (statementId: string) =>
  */
 export const selectParticipantsBySettingsId = (settingsId: string) =>
 	createSelector([getParticipants], (participants) =>
-		participants.filter((p) => p.settingsId === settingsId)
+		participants.filter((p) => p.settingsId === settingsId),
 	);
 
 /**
@@ -184,38 +208,40 @@ export const selectParticipantsBySettingsId = (settingsId: string) =>
  */
 export const selectParticipantsByRoomId = (roomId: string) =>
 	createSelector([getParticipants], (participants) =>
-		participants.filter((p) => p.roomId === roomId)
+		participants.filter((p) => p.roomId === roomId),
 	);
 
 /**
  * Select current user's room assignment for a statement
  */
-export const selectMyRoomAssignment = (state: RootState) => state.roomAssignment.myAssignment;
+export const selectMyRoomAssignment = (state: { roomAssignment: RoomAssignmentState }) =>
+	state.roomAssignment.myAssignment;
 
 /**
  * Select loading state
  */
-export const selectIsLoading = (state: RootState) => state.roomAssignment.isLoading;
+export const selectIsLoading = (state: { roomAssignment: RoomAssignmentState }) =>
+	state.roomAssignment.isLoading;
 
 /**
  * Select error state
  */
-export const selectError = (state: RootState) => state.roomAssignment.error;
+export const selectError = (state: { roomAssignment: RoomAssignmentState }) =>
+	state.roomAssignment.error;
 
 /**
  * Select room count for a settings ID
  */
 export const selectRoomCountBySettingsId = (settingsId: string) =>
-	createSelector([getRooms], (rooms) =>
-		rooms.filter((r) => r.settingsId === settingsId).length
-	);
+	createSelector([getRooms], (rooms) => rooms.filter((r) => r.settingsId === settingsId).length);
 
 /**
  * Select participant count for a settings ID
  */
 export const selectParticipantCountBySettingsId = (settingsId: string) =>
-	createSelector([getParticipants], (participants) =>
-		participants.filter((p) => p.settingsId === settingsId).length
+	createSelector(
+		[getParticipants],
+		(participants) => participants.filter((p) => p.settingsId === settingsId).length,
 	);
 
 export default roomAssignmentSlice;

@@ -7,8 +7,8 @@ import {
 	Statement,
 	StatementSchema,
 	ResultsSettingsSchema,
-	Collections
-} from 'delib-npm';
+	Collections,
+} from '@freedi/shared-types';
 
 export async function updateResultsSettings(
 	ev: FirestoreEvent<
@@ -16,15 +16,12 @@ export async function updateResultsSettings(
 		{
 			statementId: string;
 		}
-	>
+	>,
 ): Promise<Statement[] | undefined> {
 	if (!ev.data) return;
 	try {
 		//get results
-		const { resultsBy } = parse(
-			ResultsSettingsSchema,
-			ev.data.after.data()
-		);
+		const { resultsBy } = parse(ResultsSettingsSchema, ev.data.after.data());
 		const { statementId } = ev.params;
 
 		if (!statementId) throw new Error('statementId is required');
@@ -48,18 +45,15 @@ export async function updateResultsSettings(
 
 async function resultsByTopOptions(statementId: string): Promise<Statement[]> {
 	try {
-		//get top options
+		// Fetch all options under this parent (can't orderBy nested field in Firestore)
 		const topOptionsDB = await db
 			.collection(Collections.statements)
 			.where('parentId', '==', statementId)
-			.orderBy('consensus', 'desc')
-			.limit(5)
 			.get();
-		const topOptions = topOptionsDB.docs.map((doc) =>
-			parse(StatementSchema, doc.data())
-		);
 
-		return topOptions;
+		const topOptions = topOptionsDB.docs.map((doc) => parse(StatementSchema, doc.data()));
+
+		return topOptions.sort((a, b) => (b.consensus ?? 0) - (a.consensus ?? 0)).slice(0, 5);
 	} catch (error) {
 		logger.error(error);
 

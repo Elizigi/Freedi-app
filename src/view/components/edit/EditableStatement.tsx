@@ -1,10 +1,13 @@
 import React, { FC } from 'react';
-import { Statement } from 'delib-npm';
+import { Statement, ParagraphType } from '@freedi/shared-types';
 import EditText, { EditTextProps } from './EditText';
 import { useEditPermission } from '@/controllers/hooks/useEditPermission';
 import { updateStatementText } from '@/controllers/db/statements/setStatements';
+import { getParagraphsText, generateParagraphId } from '@/utils/paragraphUtils';
+import { logError } from '@/utils/errorHandling';
 
-interface EditableStatementProps extends Omit<EditTextProps, 'value' | 'secondaryValue' | 'editable' | 'editing' | 'onSave'> {
+interface EditableStatementProps
+	extends Omit<EditTextProps, 'value' | 'secondaryValue' | 'editable' | 'editing' | 'onSave'> {
 	statement: Statement | undefined;
 	showDescription?: boolean;
 	onSaveSuccess?: () => void;
@@ -33,26 +36,43 @@ const EditableStatement: FC<EditableStatementProps> = ({
 			if (!statement) throw new Error('Statement is undefined');
 
 			const title = variant === 'description' ? statement.statement : primary;
-			const description = variant === 'statement' ? statement.description : (secondary || '');
 
-			await updateStatementText(statement, title, description);
+			// Convert secondary text lines to paragraphs
+			const paragraphs = secondary?.trim()
+				? secondary
+						.split('\n')
+						.filter((line) => line.trim())
+						.map((line, index) => ({
+							paragraphId: generateParagraphId(),
+							type: ParagraphType.paragraph,
+							content: line,
+							order: index,
+						}))
+				: undefined;
+
+			await updateStatementText(statement, title, paragraphs);
 			onSaveSuccess?.();
 		} catch (error) {
-			console.error('Error updating statement:', error);
+			logError(error, {
+				operation: 'edit.EditableStatement.handleSave',
+				metadata: { message: 'Error updating statement:' },
+			});
 			onSaveError?.(error as Error);
 		}
 	};
 
 	const effectiveVariant = showDescription ? variant : 'statement';
+	const paragraphsText = getParagraphsText(statement.paragraphs);
 
 	return (
 		<EditText
 			value={statement.statement || ''}
-			secondaryValue={statement.description || ''}
+			secondaryValue={paragraphsText}
 			editable={isEditable}
 			editing={forceEditing}
 			onSave={handleSave}
 			variant={effectiveVariant}
+			statementObj={statement}
 			{...editTextProps}
 		/>
 	);
