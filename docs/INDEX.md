@@ -25,6 +25,9 @@ Developer guides, coding standards, and user-facing docs.
 - `design-guide.md` - Visual design guide (colors, typography, components)
 - `participant-personas.md` - User personas and research (.pdf available)
 
+### [`PRIVACY_AND_RESEARCH_POLICY.md`](./PRIVACY_AND_RESEARCH_POLICY.md)
+Privacy policy and scientific research data policy covering data collection, consent model, anonymization, retention, and user rights.
+
 ### [`security/`](./security/)
 Security policies and vulnerability tracking.
 - `SECURITY.md` - Security policy & reporting
@@ -86,6 +89,10 @@ Research papers and theoretical foundations.
 - `popper-hebbian-edit-mockups.md` - Edit flow mockups
 - `realistic_support_paper.md` - Realistic support paper
 
+### [`clusters and synthesis/`](./clusters%20and%20synthesis/)
+Methodology paper for the clustering and idea-synthesis subsystems. The current architecture lives at [`architectures/CLUSTERING_AND_SYNTHESIS_ARCHITECTURE.md`](../architectures/CLUSTERING_AND_SYNTHESIS_ARCHITECTURE.md).
+- `clustering-and-synthesis-paper.md` - Unified methodology paper (hybrid text-rating clustering + verified-embedding synthesis on a single OpenAI embedding space)
+
 ### [`qa/`](./qa/)
 Quality assurance and end-to-end testing.
 - `E2E_TESTING.md` - End-to-end testing guide
@@ -128,7 +135,6 @@ Independent feature plans (read as needed).
 - `SEMANTIC_SEARCH_IMPLEMENTATION_PLAN.md` - Semantic search
 - `SETTINGS_REDESIGN_SPEC.md` / `STATEMENT_SETTINGS_UX_PROPOSAL.md` - Settings redesign
 - `Integration.md` - Integration plan
-- `look-for-similarties-scaling-up.md` - Similarity detection at scale
 
 #### [`plans/ai-ml/`](./plans/ai-ml/) — *AI & ML*
 AI-powered features and evaluation models.
@@ -145,6 +151,7 @@ AI-powered features and evaluation models.
 | Set up development environment | [`setup/`](./setup/) |
 | Understand coding standards | [`guides/CODING_STYLE_GUIDE.md`](./guides/CODING_STYLE_GUIDE.md) |
 | Learn the design system | [`guides/design-guide.md`](./guides/design-guide.md) |
+| Understand privacy & research data | [`PRIVACY_AND_RESEARCH_POLICY.md`](./PRIVACY_AND_RESEARCH_POLICY.md) |
 | Report a security issue | [`security/SECURITY.md`](./security/SECURITY.md) |
 | Check performance metrics | [`performance/`](./performance/) |
 | Review system architecture | [`architecture/`](./architecture/) |

@@ -28,6 +28,7 @@ import {
 	Activity,
 	Globe,
 	Download,
+	Layers,
 } from 'lucide-react';
 import { useSelector } from 'react-redux';
 import { createStatementsByParentSelector } from '@/redux/utils/selectorFactories';
@@ -42,6 +43,8 @@ import DiscussionSettings from './DiscussionSettings';
 import NavigationSettings from './NavigationSettings';
 import LocalizationSettings from './LocalizationSettings';
 import ExportSettings from './ExportSettings';
+import SynthesisPanel from '../synthesisPanel/SynthesisPanel';
+import { StatementType } from '@freedi/shared-types';
 
 interface CategoryConfig {
 	id: string;
@@ -52,8 +55,13 @@ interface CategoryConfig {
 	defaultExpanded: boolean;
 }
 
-const EnhancedAdvancedSettings: FC<StatementSettingsProps> = ({ statement }) => {
+const EnhancedAdvancedSettings: FC<StatementSettingsProps> = ({ statement: propStatement }) => {
 	const { t } = useTranslation();
+	// Prefer the live Redux statement so async Firestore writes (toggles, etc.)
+	// are reflected immediately once the snapshot listener fires. Fall back to
+	// the prop until the store has it.
+	const liveStatement = useAppSelector(statementSelector(propStatement.statementId));
+	const statement = liveStatement ?? propStatement;
 	const topParentStatement = useAppSelector(statementSelector(statement.topParentId));
 
 	const settings: StatementSettings = statement.statementSettings ?? defaultStatementSettings;
@@ -90,6 +98,23 @@ const EnhancedAdvancedSettings: FC<StatementSettingsProps> = ({ statement }) => 
 			priority: 'medium',
 			defaultExpanded: true,
 		},
+		// Synthesis is positioned ABOVE the AI/threshold category — it's the
+		// primary clustering mechanism in the living-only model, and admins
+		// should see it before the legacy AI knobs.
+		...(statement.statementType === StatementType.question
+			? [
+					{
+						id: 'synthesis',
+						title: t('Synthesis'),
+						icon: Layers,
+						description: t(
+							'Continuously cluster equivalent options. Threshold knobs, "Synthesize" button, selective synthesis.',
+						),
+						priority: 'high' as const,
+						defaultExpanded: false,
+					},
+				]
+			: []),
 		{
 			id: 'ai',
 			title: t('AI & Automation'),
@@ -370,6 +395,8 @@ const EnhancedAdvancedSettings: FC<StatementSettingsProps> = ({ statement }) => 
 									{category.id === 'dataExport' && (
 										<ExportSettings statement={statement} subStatements={subStatements} />
 									)}
+
+									{category.id === 'synthesis' && <SynthesisPanel statement={statement} />}
 								</div>
 							)}
 						</div>

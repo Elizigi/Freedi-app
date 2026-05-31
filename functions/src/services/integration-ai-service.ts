@@ -1,11 +1,10 @@
-import {
-	GenerativeModel,
-	GoogleGenerativeAI,
-	HarmCategory,
-	HarmBlockThreshold,
-} from '@google/generative-ai';
+import { HarmCategory, HarmBlockThreshold } from '@google-cloud/vertexai';
 import { logger } from 'firebase-functions';
-import { GEMINI_MODEL } from '../config/gemini';
+import {
+	GEMINI_MODEL,
+	getGenAI,
+	type CompatGenerativeModel,
+} from '../config/gemini';
 import { Statement, StatementEvaluation } from '@freedi/shared-types';
 import { getParagraphsText } from '../helpers';
 
@@ -38,27 +37,43 @@ export interface IntegratedSuggestionResult {
 }
 
 /**
- * A cached singleton instance of the GenerativeModel.
+ * A synthesized proposal: a NEW actionable solution drawn from the inputs,
+ * not just a merged paraphrase. Includes paragraphs (rich body) and a
+ * cached single-paragraph description for cards.
+ *
+ * When the source set spans incompatible solution directions, the
+ * generator can refuse to synthesize and return a split proposal so the
+ * admin can commit two separate syntheses instead of one.
  */
-let _integrationModel: GenerativeModel | null = null;
+export interface SynthesizedProposalResult {
+	cannotSynthesize: false;
+	title: string;
+	description: string;
+	paragraphs: string[];
+}
+
+export interface CannotSynthesizeResult {
+	cannotSynthesize: true;
+	reason: string;
+	/**
+	 * Optional grouping of source statementIds into directionally-coherent
+	 * sub-groups. Each inner array is a candidate synthesis; if present,
+	 * the admin UI can offer one-click split.
+	 */
+	splitProposal?: string[][];
+}
+
+export type SynthesisGenerationResult = SynthesizedProposalResult | CannotSynthesizeResult;
 
 /**
- * Get the GoogleGenerativeAI instance
+ * A cached singleton instance of the GenerativeModel.
  */
-function getGenAI(): GoogleGenerativeAI {
-	const apiKey = process.env.GEMINI_API_KEY;
-
-	if (!apiKey) {
-		throw new Error('Missing GEMINI_API_KEY environment variable');
-	}
-
-	return new GoogleGenerativeAI(apiKey);
-}
+let _integrationModel: CompatGenerativeModel | null = null;
 
 /**
  * Initializes and retrieves the Generative AI model for integration tasks.
  */
-async function getIntegrationModel(): Promise<GenerativeModel> {
+async function getIntegrationModel(): Promise<CompatGenerativeModel> {
 	if (_integrationModel) {
 		return _integrationModel;
 	}
@@ -370,6 +385,272 @@ function createFallbackIntegratedSuggestion(
 			.slice(0, 3)
 			.map((s) => s.statement)
 			.join(' + ')}`,
+	};
+}
+
+/**
+ * Generate a SYNTHESIZED PROPOSAL from a verified-same group of source ideas.
+ *
+ * Distinct from `generateIntegratedSuggestion()`:
+ *   - Treats the inputs as raw material for a NEW actionable solution, not
+ *     paraphrases to merge into one canonical title.
+ *   - Returns rich body as `paragraphs[]` (multi-section plan) plus a
+ *     cached single-paragraph `description` for card previews.
+ *   - Self-checks for directional conflict (e.g. "raise X" + "lower X")
+ *     and refuses with a `splitProposal` rather than producing a muddy
+ *     middle. Caller is expected to surface the split to the admin.
+ *
+ * The four-way verdict upstream is supposed to drop opposites before this
+ * runs, but it isn't perfect. This is the second line of defense.
+ */
+export async function generateSynthesizedProposal(
+	statements: StatementWithEvaluation[],
+	questionContext: string,
+): Promise<SynthesisGenerationResult> {
+	if (statements.length === 0) {
+		throw new Error('No statements provided for synthesis');
+	}
+	if (statements.length === 1) {
+		const only = statements[0];
+
+		return {
+			cannotSynthesize: false,
+			title: only.statement,
+			description: only.paragraphsText?.split('\n').filter(Boolean)[0] || '',
+			paragraphs: only.paragraphsText
+				? only.paragraphsText.split(/\n{2,}/).filter((p) => p.trim().length > 0)
+				: [],
+		};
+	}
+
+	const totalEvaluators = statements.reduce((sum, s) => sum + s.numberOfEvaluators, 0);
+
+	const sampleText = statements[0].statement;
+	const isHebrew = /[֐-׿]/.test(sampleText);
+	const isArabic = /[؀-ۿ]/.test(sampleText);
+	const languageInstruction = isHebrew
+		? 'Write the entire output (title, description, paragraphs) in Hebrew.'
+		: isArabic
+			? 'Write the entire output (title, description, paragraphs) in Arabic.'
+			: 'Write the output in the same language as the input proposals.';
+
+	const sourceLines = statements.map((s) => {
+		const weight =
+			totalEvaluators > 0
+				? Math.round((s.numberOfEvaluators / totalEvaluators) * 100)
+				: Math.round(100 / statements.length);
+
+		return `[id=${s.statementId} | weight=${weight}% | n=${s.numberOfEvaluators} | consensus=${s.consensus.toFixed(2)}]
+  Title: ${s.statement}
+  ${s.paragraphsText ? `Body: ${s.paragraphsText.slice(0, 600)}` : '(no body)'}`;
+	});
+
+	const prompt = `You are synthesizing community proposals into a single actionable solution.
+
+QUESTION: "${questionContext}"
+
+You are given ${statements.length} community proposals that an upstream pipeline verified as variations of the SAME underlying idea. They have already been weighted by community support (higher weight = more attention).
+
+SOURCE PROPOSALS:
+${sourceLines.join('\n\n')}
+
+YOUR TASK — TWO STAGES:
+
+STAGE 1: DIRECTIONAL COHERENCE CHECK
+Before writing anything, scan the proposals. If the inputs pull in fundamentally OPPOSITE solution directions on the same lever — e.g. "raise X" vs "lower X", "expand Y" vs "abolish Y", "centralize Z" vs "decentralize Z" — they cannot honestly synthesize into one proposal. Return:
+{
+  "cannotSynthesize": true,
+  "reason": "<one short sentence describing the directional conflict>",
+  "splitProposal": [["statementId of group A members"], ["statementId of group B members"], …]
+}
+
+Be conservative — only refuse when the disagreement is a directional split, not just different emphasis or different specifics.
+
+STAGE 2: WRITE THE SYNTHESIZED PROPOSAL (only if Stage 1 passes)
+Write a NEW actionable proposal. Don't summarize what people said — propose what should be DONE. Verb-led title, executive summary, multi-section plan.
+
+Drawing-from rules:
+- Give more weight to higher-weight sources.
+- Resolve minor specifics-disagreement by picking the most concrete option (e.g. "$50k" beats "some funding").
+- Make implementation specifics explicit: who does what, on what timeline, with what success measure.
+- It's OK to add cohesion words and structural framing the inputs don't have. It is NOT ok to invent facts or numbers not present in any input.
+- Keep the proposal acceptable to the supporters of all weighted-in inputs.
+
+Length: title 8–18 words; description 2–3 sentences (60–90 words); 2–4 paragraphs of 80–140 words each.
+
+${languageInstruction}
+
+Return JSON:
+{
+  "cannotSynthesize": false,
+  "title": "Verb-led action-oriented proposal title",
+  "description": "Single-paragraph executive summary suitable as a card preview",
+  "paragraphs": ["Section 1: actions/steps", "Section 2: stakeholders & responsibilities", "Section 3: constraints, timing, success measures"]
+}`;
+
+	try {
+		const model = await getIntegrationModel();
+		const result = await model.generateContent(prompt);
+		let responseText = result.response.text();
+		responseText = responseText
+			.replace(/```json\s*/gi, '')
+			.replace(/```\s*/g, '')
+			.trim();
+
+		logger.info('synthesisProposal: AI response', {
+			preview: responseText.substring(0, 300),
+			groupSize: statements.length,
+		});
+
+		const parsed = JSON.parse(responseText);
+
+		if (parsed.cannotSynthesize === true) {
+			const reason =
+				typeof parsed.reason === 'string' && parsed.reason.trim()
+					? parsed.reason.trim()
+					: 'Source proposals span incompatible solution directions.';
+			const splitProposal: string[][] | undefined = Array.isArray(parsed.splitProposal)
+				? parsed.splitProposal
+						.filter((g: unknown): g is string[] => Array.isArray(g))
+						.map((g: string[]) => g.filter((id) => typeof id === 'string'))
+						.filter((g: string[]) => g.length > 0)
+				: undefined;
+
+			return { cannotSynthesize: true, reason, splitProposal };
+		}
+
+		const title =
+			typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : '';
+		const description = typeof parsed.description === 'string' ? parsed.description.trim() : '';
+		const paragraphs: string[] = Array.isArray(parsed.paragraphs)
+			? parsed.paragraphs
+					.filter((p: unknown): p is string => typeof p === 'string')
+					.map((p: string) => p.trim())
+					.filter((p: string) => p.length > 0)
+			: [];
+
+		if (!title) {
+			logger.warn('synthesisProposal: AI returned no title, falling back');
+
+			return synthesisFallback(statements);
+		}
+
+		return { cannotSynthesize: false, title, description, paragraphs };
+	} catch (error) {
+		logger.error('synthesisProposal: error', error);
+
+		return synthesisFallback(statements);
+	}
+}
+
+/**
+ * Result of generating a short topic-cluster label from a pair (or more) of
+ * related-but-distinct ideas. Used by the pipeline's "topic cluster" spawn
+ * path — not for synth merging.
+ */
+export interface TopicLabelResult {
+	title: string;
+	description: string;
+}
+
+/**
+ * Produce a short topic-style label that names what a set of related ideas
+ * share, without merging them into one proposal. Cheap by design — short
+ * prompt, short output. Falls back to a truncation of the first input if
+ * the LLM call or parse fails.
+ */
+export async function generateTopicLabel(
+	inputs: Statement[],
+	questionContext: string,
+): Promise<TopicLabelResult> {
+	if (inputs.length === 0) {
+		throw new Error('No inputs provided for topic label');
+	}
+
+	const sample = inputs[0].statement;
+	const isHebrew = /[֐-׿]/.test(sample);
+	const isArabic = /[؀-ۿ]/.test(sample);
+	const languageInstruction = isHebrew
+		? 'Write the label in Hebrew.'
+		: isArabic
+			? 'Write the label in Arabic.'
+			: 'Write the label in the same language as the input ideas.';
+
+	const ideaLines = inputs
+		.slice(0, 6)
+		.map((s, i) => `${i + 1}. ${s.statement}`)
+		.join('\n');
+
+	const prompt = `You are naming a topic that groups related but distinct community ideas.
+
+QUESTION: "${questionContext}"
+
+RELATED IDEAS (different specifics, same general topic):
+${ideaLines}
+
+TASK: Produce a SHORT topic label (3–6 words) describing what these ideas have in common at the topic level — not a merged proposal. Examples of good labels: "Public transit improvements", "Park & green space", "Bike lane expansion". Avoid verb-led action phrasing; this is a category, not a plan.
+
+Also give a one-sentence description (≤ 20 words) describing the topic.
+
+${languageInstruction}
+
+Return JSON:
+{
+  "title": "3–6 word topic label",
+  "description": "One-sentence topic description (≤ 20 words)"
+}`;
+
+	try {
+		const model = await getIntegrationModel();
+		const result = await model.generateContent(prompt);
+		let responseText = result.response.text();
+		responseText = responseText
+			.replace(/```json\s*/gi, '')
+			.replace(/```\s*/g, '')
+			.trim();
+
+		const parsed = JSON.parse(responseText);
+		const title =
+			typeof parsed.title === 'string' && parsed.title.trim() ? parsed.title.trim() : '';
+		const description = typeof parsed.description === 'string' ? parsed.description.trim() : '';
+
+		if (!title) {
+			return topicLabelFallback(inputs);
+		}
+
+		return { title, description };
+	} catch (error) {
+		logger.warn('generateTopicLabel: error, using fallback', {
+			error: error instanceof Error ? error.message : String(error),
+		});
+
+		return topicLabelFallback(inputs);
+	}
+}
+
+function topicLabelFallback(inputs: Statement[]): TopicLabelResult {
+	const primary = inputs[0].statement;
+	const isHebrew = /[֐-׿]/.test(primary);
+	const prefix = isHebrew ? 'נושא: ' : 'Topic: ';
+	const trimmed = primary.length > 50 ? primary.substring(0, 47) + '…' : primary;
+
+	return {
+		title: `${prefix}${trimmed}`,
+		description: '',
+	};
+}
+
+function synthesisFallback(statements: StatementWithEvaluation[]): SynthesizedProposalResult {
+	const sorted = [...statements].sort((a, b) => b.numberOfEvaluators - a.numberOfEvaluators);
+	const primary = sorted[0];
+	const isHebrew = /[֐-׿]/.test(primary.statement);
+	const prefix = isHebrew ? 'הצעה מאוחדת מתוך ' : 'Synthesized from ';
+
+	return {
+		cannotSynthesize: false,
+		title: primary.statement,
+		description: `${prefix}${statements.length} ${isHebrew ? 'הצעות דומות' : 'similar ideas'}.`,
+		paragraphs: sorted.slice(0, 3).map((s) => s.paragraphsText || s.statement),
 	};
 }
 

@@ -31,6 +31,13 @@ export function initSentry() {
 					return null;
 				}
 
+				// Filter out Firestore offline errors — not actionable, happens
+				// constantly on flaky mobile networks
+				const firebaseErr = error as { name?: string; code?: string } | undefined;
+				if (firebaseErr?.name === 'FirebaseError' && firebaseErr?.code === 'unavailable') {
+					return null;
+				}
+
 				// Filter out IndexedDB errors (handled by indexedDBErrorHandler)
 				if (error instanceof Error) {
 					const msg = error.message;
@@ -95,6 +102,9 @@ export function initSentry() {
 				'Failed to fetch',
 				// Firebase errors that are handled
 				'permission-denied',
+				// Firestore offline — user device lost connection, not actionable
+				'Failed to get document because the client is offline',
+				'Could not reach Cloud Firestore backend',
 				// IndexedDB errors - handled by indexedDBErrorHandler
 				'IndexedDbTransactionError',
 				'IndexedDB transaction',
@@ -123,15 +133,13 @@ export function captureException(error: Error, context?: Record<string, unknown>
 			scope.setContext('additional', context);
 		}
 
-		// Add user context if available
+		// Add pseudonymized user context — no PII (email/username) sent to third-party
 		try {
 			const userString = localStorage.getItem('user');
 			if (userString) {
 				const user = JSON.parse(userString);
 				scope.setUser({
 					id: user.uid,
-					email: user.email,
-					username: user.displayName,
 				});
 			}
 		} catch {

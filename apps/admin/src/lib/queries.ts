@@ -4,6 +4,7 @@ import {
 	doc,
 	getDoc,
 	getDocs,
+	updateDoc,
 	query,
 	where,
 	orderBy,
@@ -13,7 +14,13 @@ import {
 	onSnapshot,
 } from './firebase';
 import type { QueryDocumentSnapshot } from './firebase';
-import { Collections, Statement, StatementType, Role, getAdminStatDocId } from '@freedi/shared-types';
+import {
+	Collections,
+	Statement,
+	StatementType,
+	Role,
+	getAdminStatDocId,
+} from '@freedi/shared-types';
 import type { AdminStatDoc, StatsPeriodType } from '@freedi/shared-types';
 import type { Unsubscribe, QuerySnapshot, DocumentData } from 'firebase/firestore';
 
@@ -40,6 +47,7 @@ function toMillis(val: unknown): number {
 		}
 		if (val instanceof Date) return val.getTime();
 	}
+
 	return 0;
 }
 
@@ -54,20 +62,18 @@ function emptyBuckets(startMs: number, endMs: number): Map<string, number> {
 		map.set(d.toISOString().slice(0, 10), 0);
 		d.setDate(d.getDate() + 1);
 	}
+
 	return map;
 }
 
-function bucketize(
-	timestamps: number[],
-	startMs: number,
-	endMs: number,
-): DayBucket[] {
+function bucketize(timestamps: number[], startMs: number, endMs: number): DayBucket[] {
 	const map = emptyBuckets(startMs, endMs);
 	for (const ts of timestamps) {
 		if (ts < startMs || ts > endMs) continue;
 		const key = new Date(ts).toISOString().slice(0, 10);
 		map.set(key, (map.get(key) || 0) + 1);
 	}
+
 	return Array.from(map.entries())
 		.sort(([a], [b]) => a.localeCompare(b))
 		.map(([date, count]) => ({ date, count }));
@@ -75,24 +81,26 @@ function bucketize(
 
 /**
  * Fetch recent documents from a collection, ordered by a timestamp field.
- * Uses orderBy + limit (no where range) to avoid Firestore Timestamp vs number
- * type mismatch issues. Filters to the date range client-side.
+ * Applies `where(timestampField, '>=', startMs)` so Firestore serves the
+ * query from an indexed range scan instead of "load 5000, filter client-side".
+ * Timestamps in this codebase are stored as milliseconds (number) per the
+ * project-wide convention (see CLAUDE.md > Timestamp Guidelines).
  */
 async function fetchRecentDocs(
 	collectionName: string,
 	timestampField: string,
 	startMs: number,
-	maxDocs: number = 5000,
+	maxDocs: number = 1000,
 ): Promise<Record<string, unknown>[]> {
 	const q = query(
 		collection(db, collectionName),
+		where(timestampField, '>=', startMs),
 		orderBy(timestampField, 'desc'),
 		limit(maxDocs),
 	);
 	const snap = await getDocs(q);
-	return snap.docs
-		.map((d) => d.data() as Record<string, unknown>)
-		.filter((d) => toMillis(d[timestampField]) >= startMs);
+
+	return snap.docs.map((d) => d.data() as Record<string, unknown>);
 }
 
 // ── Public time-series queries ───────────────────────────────────────
@@ -102,6 +110,7 @@ export async function fetchStatementsPerDay(days: number = 30): Promise<DayBucke
 	const startMs = endMs - days * 86_400_000;
 	const docs = await fetchRecentDocs(Collections.statements, 'createdAt', startMs);
 	const timestamps = docs.map((d) => toMillis(d.createdAt));
+
 	return bucketize(timestamps, startMs, endMs);
 }
 
@@ -110,7 +119,9 @@ export interface StatementsByTypePerDay {
 	data: DayBucket[];
 }
 
-export async function fetchStatementsByTypePerDay(days: number = 30): Promise<StatementsByTypePerDay[]> {
+export async function fetchStatementsByTypePerDay(
+	days: number = 30,
+): Promise<StatementsByTypePerDay[]> {
 	const endMs = Date.now();
 	const startMs = endMs - days * 86_400_000;
 	const docs = await fetchRecentDocs(Collections.statements, 'createdAt', startMs);
@@ -133,9 +144,8 @@ export async function fetchTopStatementsPerDay(days: number = 30): Promise<DayBu
 	const startMs = endMs - days * 86_400_000;
 	// Fetch recent statements and filter to top-level (parentId === 'top') client-side
 	const docs = await fetchRecentDocs(Collections.statements, 'createdAt', startMs);
-	const timestamps = docs
-		.filter((d) => d.parentId === 'top')
-		.map((d) => toMillis(d.createdAt));
+	const timestamps = docs.filter((d) => d.parentId === 'top').map((d) => toMillis(d.createdAt));
+
 	return bucketize(timestamps, startMs, endMs);
 }
 
@@ -144,6 +154,7 @@ export async function fetchEvaluationsPerDay(days: number = 30): Promise<DayBuck
 	const startMs = endMs - days * 86_400_000;
 	const docs = await fetchRecentDocs(Collections.evaluations, 'updatedAt', startMs);
 	const timestamps = docs.map((d) => toMillis(d.updatedAt));
+
 	return bucketize(timestamps, startMs, endMs);
 }
 
@@ -152,6 +163,7 @@ export async function fetchVotesPerDay(days: number = 30): Promise<DayBucket[]> 
 	const startMs = endMs - days * 86_400_000;
 	const docs = await fetchRecentDocs(Collections.votes, 'createdAt', startMs);
 	const timestamps = docs.map((d) => toMillis(d.createdAt));
+
 	return bucketize(timestamps, startMs, endMs);
 }
 
@@ -160,6 +172,7 @@ export async function fetchSubscriptionsPerDay(days: number = 30): Promise<DayBu
 	const startMs = endMs - days * 86_400_000;
 	const docs = await fetchRecentDocs(Collections.statementsSubscribe, 'createdAt', startMs);
 	const timestamps = docs.map((d) => toMillis(d.createdAt));
+
 	return bucketize(timestamps, startMs, endMs);
 }
 
@@ -202,7 +215,7 @@ const DEFAULT_PAGE_SIZE = 25;
 export async function fetchStatements(
 	filters: StatementsFilter,
 	cursor: QueryDocumentSnapshot | null,
-	pageSize: number = DEFAULT_PAGE_SIZE
+	pageSize: number = DEFAULT_PAGE_SIZE,
 ): Promise<PaginatedResult<Statement>> {
 	const constraints = [];
 
@@ -233,11 +246,13 @@ export async function fetchStatements(
 
 export async function fetchStatementCount(): Promise<number> {
 	const snap = await getCountFromServer(collection(db, Collections.statements));
+
 	return snap.data().count;
 }
 
 export async function fetchStatementById(id: string): Promise<Statement | null> {
 	const docSnap = await getDoc(doc(db, Collections.statements, id));
+
 	return docSnap.exists() ? (docSnap.data() as Statement) : null;
 }
 
@@ -252,7 +267,7 @@ export interface UserDoc {
 
 export async function fetchUsers(
 	cursor: QueryDocumentSnapshot | null,
-	pageSize: number = DEFAULT_PAGE_SIZE
+	pageSize: number = DEFAULT_PAGE_SIZE,
 ): Promise<PaginatedResult<UserDoc>> {
 	const constraints = [];
 	constraints.push(orderBy('displayName'));
@@ -270,7 +285,7 @@ export async function fetchUsers(
 	const docs = hasMore ? snapshot.docs.slice(0, pageSize) : snapshot.docs;
 
 	return {
-		items: docs.map((d) => ({ uid: d.id, ...d.data() } as UserDoc)),
+		items: docs.map((d) => ({ uid: d.id, ...d.data() }) as UserDoc),
 		lastDoc: docs.length > 0 ? docs[docs.length - 1] : null,
 		hasMore,
 	};
@@ -278,6 +293,7 @@ export async function fetchUsers(
 
 export async function fetchUserCount(): Promise<number> {
 	const snap = await getCountFromServer(collection(db, Collections.users));
+
 	return snap.data().count;
 }
 
@@ -295,10 +311,7 @@ export async function fetchAdminSubscriptions(): Promise<AdminSubscription[]> {
 	const results: AdminSubscription[] = [];
 
 	for (const role of adminRoles) {
-		const q = query(
-			collection(db, Collections.statementsSubscribe),
-			where('role', '==', role)
-		);
+		const q = query(collection(db, Collections.statementsSubscribe), where('role', '==', role));
 		const snapshot = await getDocs(q);
 
 		for (const docSnap of snapshot.docs) {
@@ -319,16 +332,19 @@ export async function fetchAdminSubscriptions(): Promise<AdminSubscription[]> {
 
 export async function fetchEvaluationCount(): Promise<number> {
 	const snap = await getCountFromServer(collection(db, Collections.evaluations));
+
 	return snap.data().count;
 }
 
 export async function fetchVoteCount(): Promise<number> {
 	const snap = await getCountFromServer(collection(db, Collections.votes));
+
 	return snap.data().count;
 }
 
 export async function fetchSuggestionCount(): Promise<number> {
 	const snap = await getCountFromServer(collection(db, Collections.suggestions));
+
 	return snap.data().count;
 }
 
@@ -346,6 +362,7 @@ export function generateDayKeys(days: number): string[] {
 		d.setDate(d.getDate() - i);
 		keys.push(d.toISOString().slice(0, 10));
 	}
+
 	return keys;
 }
 
@@ -362,6 +379,7 @@ export function generateMonthKeys(months: number): string[] {
 		const mm = String(d.getMonth() + 1).padStart(2, '0');
 		keys.push(`${yyyy}-${mm}`);
 	}
+
 	return keys;
 }
 
@@ -375,6 +393,7 @@ export function generateYearKeys(years: number): string[] {
 	for (let i = years - 1; i >= 0; i--) {
 		keys.push(String(currentYear - i));
 	}
+
 	return keys;
 }
 
@@ -393,6 +412,7 @@ export async function fetchAdminStats(
 	const promises = periodKeys.map(async (key) => {
 		const docId = getAdminStatDocId(collectionName, key);
 		const docSnap = await getDoc(doc(db, Collections.adminStats, docId));
+
 		return docSnap.exists() ? (docSnap.data() as AdminStatDoc) : null;
 	});
 
@@ -442,6 +462,66 @@ export function statsToBuckets(
 
 // ── Real-time listener helpers ───────────────────────────────────────
 
+/**
+ * Toggle enableResearchLogging on a statement's statementSettings.
+ */
+export async function setResearchLogging(statementId: string, enabled: boolean): Promise<void> {
+	const ref = doc(db, Collections.statements, statementId);
+	await updateDoc(ref, { 'statementSettings.enableResearchLogging': enabled });
+}
+
+/**
+ * Fetch the current enableResearchLogging value for a statement.
+ * Returns null if statement not found.
+ */
+export async function getResearchLoggingStatus(
+	statementId: string,
+): Promise<{ enabled: boolean; title: string } | null> {
+	const docSnap = await getDoc(doc(db, Collections.statements, statementId));
+	if (!docSnap.exists()) return null;
+	const data = docSnap.data() as Statement;
+
+	return {
+		enabled: data.statementSettings?.enableResearchLogging === true,
+		title: data.statement || statementId,
+	};
+}
+
+/**
+ * Fetch statement titles/descriptions for a set of statement IDs.
+ * Returns a lookup map: statementId → { title, description }
+ */
+export async function fetchStatementContextMap(
+	statementIds: string[],
+): Promise<Record<string, { title: string; description?: string }>> {
+	const context: Record<string, { title: string; description?: string }> = {};
+	const BATCH = 10;
+
+	for (let i = 0; i < statementIds.length; i += BATCH) {
+		const batch = statementIds.slice(i, i + BATCH);
+		const results = await Promise.all(
+			batch.map((id) => getDoc(doc(db, Collections.statements, id))),
+		);
+
+		for (const snap of results) {
+			if (!snap.exists()) continue;
+			const data = snap.data() as Statement;
+			const title = data.statement || '';
+			const paragraphs = data.paragraphs;
+			const description = Array.isArray(paragraphs)
+				? paragraphs
+						.map((p: { content?: string }) => p.content || '')
+						.join(' ')
+						.substring(0, 300)
+				: undefined;
+
+			context[snap.id] = { title, description };
+		}
+	}
+
+	return context;
+}
+
 export { toMillis, bucketize };
 export type { Unsubscribe, QueryDocumentSnapshot };
 
@@ -449,6 +529,9 @@ type SnapshotCallback = (snap: QuerySnapshot<DocumentData>) => void;
 
 /**
  * Subscribe to the most recent documents in a collection.
+ * Pass `startMs` to scope the listener to an indexed time window
+ * (`where(timestampField, '>=', startMs)`) instead of tailing the entire
+ * collection — a 5000-doc unfiltered scan flagged by Query Insights.
  * Returns an unsubscribe function.
  */
 export function listenToRecent(
@@ -456,12 +539,17 @@ export function listenToRecent(
 	timestampField: string,
 	maxDocs: number,
 	callback: SnapshotCallback,
+	startMs?: number,
 ): Unsubscribe {
-	const q = query(
-		collection(db, collectionName),
-		orderBy(timestampField, 'desc'),
-		limit(maxDocs),
-	);
+	const constraints = [];
+	if (startMs !== undefined) {
+		constraints.push(where(timestampField, '>=', startMs));
+	}
+	constraints.push(orderBy(timestampField, 'desc'));
+	constraints.push(limit(maxDocs));
+
+	const q = query(collection(db, collectionName), ...constraints);
+
 	return onSnapshot(q, callback, (error) => {
 		console.error(`[Listener] ${collectionName} error:`, error);
 	});
@@ -470,15 +558,12 @@ export function listenToRecent(
 /**
  * Subscribe to admin subscriptions (role == admin or statement-creator).
  */
-export function listenToAdminSubscriptions(
-	callback: SnapshotCallback,
-): Unsubscribe[] {
+export function listenToAdminSubscriptions(callback: SnapshotCallback): Unsubscribe[] {
 	const adminRoles: string[] = [Role.admin, Role.creator];
+
 	return adminRoles.map((role) => {
-		const q = query(
-			collection(db, Collections.statementsSubscribe),
-			where('role', '==', role),
-		);
+		const q = query(collection(db, Collections.statementsSubscribe), where('role', '==', role));
+
 		return onSnapshot(q, callback, (error) => {
 			console.error(`[Listener] admin subs (${role}) error:`, error);
 		});
@@ -501,6 +586,7 @@ export function listenToStatements(
 	constraints.push(limit(pageSize));
 
 	const q = query(collection(db, Collections.statements), ...constraints);
+
 	return onSnapshot(q, callback, (error) => {
 		console.error('[Listener] statements error:', error);
 	});
@@ -509,15 +595,9 @@ export function listenToStatements(
 /**
  * Subscribe to users ordered by displayName.
  */
-export function listenToUsers(
-	pageSize: number,
-	callback: SnapshotCallback,
-): Unsubscribe {
-	const q = query(
-		collection(db, Collections.users),
-		orderBy('displayName'),
-		limit(pageSize),
-	);
+export function listenToUsers(pageSize: number, callback: SnapshotCallback): Unsubscribe {
+	const q = query(collection(db, Collections.users), orderBy('displayName'), limit(pageSize));
+
 	return onSnapshot(q, callback, (error) => {
 		console.error('[Listener] users error:', error);
 	});

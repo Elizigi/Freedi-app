@@ -11,6 +11,7 @@ import {
 } from 'valibot';
 import { Creator, CreatorSchema, User, UserSchema } from '../user/User';
 import { Role } from '../user/UserSettings';
+import { StatementType } from '../TypeEnums';
 import { NotificationFrequency } from '../engagement/NotificationFrequency';
 import { BranchPreferenceSchema } from '../engagement/EngagementModel';
 import { StatementSchema } from './StatementTypes';
@@ -25,6 +26,12 @@ export const StatementSubscriptionSchema = object({
 	statementsSubscribeId: string(),
 	statement: SimpleStatementSchema || StatementSchema,
 	lastSubStatements:optional(array(SimpleStatementSchema || StatementSchema)),
+
+	// Top-level query fields (promoted from embedded statement for efficient Firestore queries)
+	// These are immutable after creation — set once when subscription is created
+	parentId: optional(string()),
+	statementType: optional(enum_(StatementType)),
+	topParentId: optional(string()),
 	tokens: optional(array(string())),
 	totalSubStatementsRead: optional(number()), // deprecated at 3/8/2024
 	lastReadTimestamp: optional(number()),
@@ -39,6 +46,15 @@ export const StatementSubscriptionSchema = object({
 	// Engagement system extensions (backwards-compatible)
 	notificationFrequency: optional(enum_(NotificationFrequency)), // Default frequency for this discussion
 	branchPreferences: optional(record(string(), BranchPreferenceSchema)), // Per-branch overrides keyed by branchStatementId
+
+	// Join app — marks this subscription so the corresponding top-level
+	// statement appears on the join app's Main page list. `openedInJoin` is
+	// the epoch-ms when the user last created/opened it from join; presence
+	// (>0) is the membership flag. `joinOrder` carries the user's manual
+	// drag-to-reorder position; lower values render first, undefined falls
+	// back to `openedInJoin` desc.
+	openedInJoin: optional(number()),
+	joinOrder: optional(number()),
 });
  
 export type StatementSubscription = InferOutput<

@@ -7,6 +7,7 @@ import SkeletonLoader from '@/components/shared/SkeletonLoader';
 import { LanguageOverrideProvider } from '@/components/providers/LanguageOverrideProvider';
 import { notFound } from 'next/navigation';
 import { getParagraphsText } from '@/lib/utils/paragraphUtils';
+import ResearchConsentBanner from '@/components/shared/ResearchConsentBanner';
 
 interface PageProps {
   params: { statementId: string };
@@ -20,17 +21,18 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     const question = await getQuestionFromFirebase(params.statementId);
 
     return {
-      title: `${question.statement} | Freedi Discussion`,
+      title: `${question.statement} | WizCol: Mass Consensus`,
       description: getParagraphsText(question.paragraphs) || `Participate in this discussion: ${question.statement}`,
       openGraph: {
         title: question.statement,
-        description: getParagraphsText(question.paragraphs) || 'Join the discussion',
+        description: getParagraphsText(question.paragraphs) || 'A new way to make decisions together',
         type: 'website',
+        images: [{ url: '/wizcol-logo.png', width: 800, height: 400, alt: 'WizCol' }],
       },
     };
   } catch {
     return {
-      title: 'Question Not Found | Freedi Discussion',
+      title: 'Question Not Found | WizCol',
     };
   }
 }
@@ -59,6 +61,12 @@ export default async function QuestionPage({ params }: PageProps) {
         forceLanguage={(question as { forceLanguage?: boolean }).forceLanguage ?? false}
       >
         <div className="page">
+          {question.statementSettings?.enableResearchLogging === true && (
+            <ResearchConsentBanner
+              topParentId={question.topParentId || params.statementId}
+              enableResearchLogging={true}
+            />
+          )}
           {/* Server Component - Static header */}
           <QuestionHeader question={question} />
 

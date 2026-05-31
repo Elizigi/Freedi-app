@@ -10,11 +10,14 @@ import { FieldValue } from 'firebase-admin/firestore';
 import {
 	Collections,
 	Statement,
+	StatementType,
 	SimpleStatement,
 	statementToSimpleStatement,
 	functionConfig,
 } from '@freedi/shared-types';
 import { getParagraphsText, generateDescriptionFromChildren } from './helpers';
+import { writeHistoryEntry } from './statements/history/writeHistoryEntry';
+import { isResearchEnabledForTopParent } from './statements/history/isResearchEnabled';
 
 /**
  * Updates parent statement when a child statement is created
@@ -92,15 +95,36 @@ export const updateParentOnChildUpdate = onDocumentUpdated(
 			}
 
 			// Check if this is a significant content change
+			const titleChanged = before.statement !== after.statement;
+			const beforeParagraphs = getParagraphsText(before.paragraphs);
+			const afterParagraphs = getParagraphsText(after.paragraphs);
+			const descriptionChanged = beforeParagraphs !== afterParagraphs;
 			const hasContentChange =
-				before.statement !== after.statement ||
-				getParagraphsText(before.paragraphs) !== getParagraphsText(after.paragraphs) ||
-				before.consensus !== after.consensus;
+				titleChanged || descriptionChanged || before.consensus !== after.consensus;
 
 			if (!hasContentChange) {
 				logger.info('No significant content changes, skipping parent update');
 
 				return;
+			}
+
+			// Write a text-change history entry when title or description actually differ.
+			// Evaluation (consensus) deltas are tracked separately by the evaluation triggers.
+			if (titleChanged || descriptionChanged) {
+				try {
+					const isResearch = await isResearchEnabledForTopParent(after.topParentId);
+					await writeHistoryEntry({
+						statement: after,
+						source: 'text-change',
+						isResearch,
+						statementBefore: titleChanged ? before.statement : undefined,
+						statementAfter: titleChanged ? after.statement : undefined,
+						descriptionBefore: descriptionChanged ? beforeParagraphs : undefined,
+						descriptionAfter: descriptionChanged ? afterParagraphs : undefined,
+					});
+				} catch (historyError) {
+					logger.warn('[statementHistory] text-change write failed:', historyError);
+				}
 			}
 
 			logger.info(`Child statement content changed, updating parent ${after.parentId}`);
@@ -176,9 +200,20 @@ async function updateParentWithLatestChildren(parentId: string) {
 
 		const timestamp = Date.now();
 
-		// Generate description from child paragraph statements
+		// Description must reflect the admin-authored body only. Build it
+		// strictly from paragraph child statements — never from option,
+		// question, or other child types, otherwise option text leaks into
+		// the parent's description preview.
+		const paragraphsSnap = await db
+			.collection(Collections.statements)
+			.where('parentId', '==', parentId)
+			.where('statementType', '==', StatementType.paragraph)
+			.orderBy('createdAt', 'desc')
+			.limit(3)
+			.get();
+
 		const description = generateDescriptionFromChildren(
-			subStatementsQuery.docs.map((doc) => {
+			paragraphsSnap.docs.map((doc) => {
 				const stmt = doc.data() as Statement;
 
 				return { statement: stmt.statement, createdAt: stmt.createdAt };
@@ -195,59 +230,12 @@ async function updateParentWithLatestChildren(parentId: string) {
 
 		logger.info(`Updated parent ${parentId} with ${lastSubStatements.length} sub-statements`);
 
-		// Update ONLY direct parent subscriptions (not cascading to all statements)
-		await updateParentSubscriptions(parentId, timestamp, lastSubStatements);
+		// REMOVED: updateParentSubscriptions fan-out
+		// Previously wrote lastUpdate to ALL subscription docs for the parent statement (O(N) writes).
+		// Now the parent Statement doc's lastChildUpdate field (set above) is the source of truth.
+		// The client reads lastChildUpdate via Redux overlay and sorts using getLatestChildActivity().
 	} catch (error) {
 		logger.error(`Error updating parent ${parentId}:`, error);
-	}
-}
-
-/**
- * Updates the lastUpdate timestamp for all subscriptions to a specific statement
- * This is limited to ONLY the direct parent statement to avoid cascading
- */
-async function updateParentSubscriptions(
-	statementId: string,
-	timestamp: number,
-	lastSubStatements: SimpleStatement[],
-) {
-	try {
-		const LIMIT = 500; // Safety limit to prevent runaway updates
-
-		// Get all subscriptions for this specific statement
-		const subscriptionsQuery = await db
-			.collection(Collections.statementsSubscribe)
-			.where('statementId', '==', statementId)
-			.limit(LIMIT) // Safety limit to prevent runaway updates
-			.get();
-
-		if (subscriptionsQuery.empty) {
-			logger.info(`No subscriptions found for statement ${statementId}`);
-
-			return;
-		}
-
-		if (subscriptionsQuery.size >= LIMIT) {
-			logger.warn(
-				`Found more than ${LIMIT} subscriptions for statement ${statementId}, consider batching updates`,
-			);
-		}
-
-		logger.info(`Updating ${subscriptionsQuery.size} subscriptions for statement ${statementId}`);
-
-		// Batch update for efficiency
-		const batch = db.batch();
-		subscriptionsQuery.docs.forEach((doc) => {
-			batch.update(doc.ref, {
-				lastUpdate: timestamp,
-				lastSubStatements: lastSubStatements,
-			});
-		});
-
-		await batch.commit();
-		logger.info(`Successfully updated ${subscriptionsQuery.size} subscriptions`);
-	} catch (error) {
-		logger.error(`Error updating subscriptions for statement ${statementId}:`, error);
 	}
 }
 

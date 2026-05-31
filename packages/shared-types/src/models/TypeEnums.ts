@@ -6,6 +6,14 @@ export enum StatementType {
 	group = 'group',
 	comment = 'comment',
 	paragraph = 'paragraph',
+	/**
+	 * Pipeline-produced synthesis option. A regular `option` semantically,
+	 * but tagged distinctly so the UI/queries can identify and treat it
+	 * separately (e.g. show a "Synthesis" badge, exclude from re-clustering).
+	 * Always carries `isCluster: true` and `derivedByPipeline: 'synthesis'`
+	 * in the document body — the type field is the fast tag.
+	 */
+	synthesis = 'synthesis',
 }
 
 
@@ -122,6 +130,7 @@ export enum Screen {
 	agreementMap = 'agreement-map',
 	polarizationIndex = 'polarization-index',
 	subQuestionsMap = 'sub-questions-map',
+	research = 'research',
 }
 
 export enum SortType {
@@ -131,6 +140,21 @@ export enum SortType {
 	accepted = 'accepted',
 	backendOrder = 'backend-order',
 	mostJoined = 'mostJoined',
+	averageEvaluation = 'averageEvaluation',
+}
+
+/**
+ * Visual style family for the join app. Each style has its own light + dark
+ * palette; system `prefers-color-scheme` still drives light vs dark.
+ *
+ * - serious: current terra/teal/indigo earth-tone palette (default)
+ * - playfulKids: bold primary colors (red, yellow, green, sky blue)
+ * - playfulTeen: warm pinks, lavenders, peach, mint
+ */
+export enum ThemeStyle {
+	serious = 'serious',
+	playfulKids = 'playfulKids',
+	playfulTeen = 'playfulTeen',
 }
 
 

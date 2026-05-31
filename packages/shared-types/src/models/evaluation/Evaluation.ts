@@ -22,6 +22,14 @@ export const EvaluationSchema = object({
 	isTestData: optional(boolean()),
 	/** Timestamp when this data was retroactively marked as test data (if applicable) */
 	markedAsTestAt: optional(number()),
+	/**
+	 * The statementId under which this evaluator's demographic answers are
+	 * stored (i.e. getStatementIdForSurvey(survey)). Set when the evaluation
+	 * was submitted inside a survey session so the polarization index can
+	 * look up the evaluator's demographics directly instead of relying on
+	 * an ancestor walk. Omitted for evaluations made outside any survey.
+	 */
+	demographicAnchorId: optional(string()),
 });
 
 export type Evaluation = InferOutput<typeof EvaluationSchema>;
@@ -56,7 +64,8 @@ export const StatementEvaluationSchema = object({
 	averageEvaluation: optional(number()), //average evaluation
 	sumSquaredEvaluations: optional(number()), //sum of squared evaluations
 	standardDeviation: optional(number()), //standard deviation of evaluations
-	agreementIndex: optional(number()), // 1 - sigma, range [0,1] — how much evaluators align
+	agreementIndex: optional(number()), // 1 - t·SEM*, range [0,1] — confidence-adjusted agreement
+	likeMindedness: optional(number()), // 1 - SEM*, range [0,1] — simple opinion similarity (user-facing)
 	confidenceIndex: optional(number()), // Gamma formula, range [0,1] — how representative the sample is
 	viewed: optional(number()), //number of users who viewed the evaluation
 	evaluationRandomNumber: optional(number()),

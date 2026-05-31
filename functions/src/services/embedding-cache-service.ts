@@ -1,6 +1,7 @@
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { logger } from 'firebase-functions';
 import { EMBEDDING_DIMENSIONS, OPENAI_EMBEDDING_MODEL } from './embedding-service';
+import { computeTextHash } from '../synthesis/textHash';
 
 // Helper to extract array from VectorValue or return as-is if already an array
 function extractEmbeddingArray(embedding: unknown): number[] | null {
@@ -34,7 +35,18 @@ interface EmbeddingWithStatement {
  * Firestore's native vector search capabilities.
  */
 class EmbeddingCacheService {
-	private db = getFirestore();
+	// Lazy Firestore handle. Resolved on first use rather than at construction
+	// so that importing this module (which constructs the exported singleton
+	// at the bottom of the file) doesn't call getFirestore() before
+	// admin.initializeApp() has run. Without this, transitively importing
+	// the singleton from any bootstrap-path module crashes the function
+	// loader with "The default Firebase app does not exist."
+	private _db: FirebaseFirestore.Firestore | null = null;
+	private get db(): FirebaseFirestore.Firestore {
+		if (!this._db) this._db = getFirestore();
+
+		return this._db;
+	}
 	private statementsCollection = 'statements';
 
 	/**
@@ -111,8 +123,16 @@ class EmbeddingCacheService {
 	 * @param statementId - The statement ID
 	 * @param embedding - The 768-dimensional embedding vector
 	 * @param context - Optional context used for embedding (e.g., parent question)
+	 * @param text - Optional statement text; when provided, its sha1 hash is
+	 *   written as `textHash` so the synthesis verdict cache can detect
+	 *   text edits and invalidate cached pair verdicts automatically.
 	 */
-	async saveEmbedding(statementId: string, embedding: number[], context?: string): Promise<void> {
+	async saveEmbedding(
+		statementId: string,
+		embedding: number[],
+		context?: string,
+		text?: string,
+	): Promise<void> {
 		if (embedding.length !== EMBEDDING_DIMENSIONS) {
 			logger.warn(
 				`Invalid embedding dimensions: ${embedding.length}, expected ${EMBEDDING_DIMENSIONS}`,
@@ -123,15 +143,17 @@ class EmbeddingCacheService {
 			// Use FieldValue.vector() for Firestore vector search compatibility
 			const vectorValue = FieldValue.vector(embedding);
 
-			await this.db
-				.collection(this.statementsCollection)
-				.doc(statementId)
-				.update({
-					embedding: vectorValue,
-					embeddingModel: OPENAI_EMBEDDING_MODEL,
-					embeddingContext: context || null,
-					embeddingCreatedAt: Date.now(),
-				});
+			const updatePayload: Record<string, unknown> = {
+				embedding: vectorValue,
+				embeddingModel: OPENAI_EMBEDDING_MODEL,
+				embeddingContext: context || null,
+				embeddingCreatedAt: Date.now(),
+			};
+			if (text) {
+				updatePayload.textHash = computeTextHash(text);
+			}
+
+			await this.db.collection(this.statementsCollection).doc(statementId).update(updatePayload);
 
 			logger.info(`Saved embedding for statement ${statementId}`);
 		} catch (error) {
@@ -142,13 +164,16 @@ class EmbeddingCacheService {
 
 	/**
 	 * Save embeddings for multiple statements in batch
-	 * @param embeddings - Array of {statementId, embedding, context}
+	 * @param embeddings - Array of {statementId, embedding, context, text}
+	 *   When `text` is provided, its sha1 hash is written as `textHash` so
+	 *   the verdict cache auto-invalidates on text edits.
 	 */
 	async saveBatchEmbeddings(
 		embeddings: Array<{
 			statementId: string;
 			embedding: number[];
 			context?: string;
+			text?: string;
 		}>,
 	): Promise<{ success: number; failed: number }> {
 		if (embeddings.length === 0) {
@@ -170,12 +195,17 @@ class EmbeddingCacheService {
 					const vectorValue = FieldValue.vector(item.embedding);
 					const docRef = this.db.collection(this.statementsCollection).doc(item.statementId);
 
-					batch.update(docRef, {
+					const payload: Record<string, unknown> = {
 						embedding: vectorValue,
 						embeddingModel: OPENAI_EMBEDDING_MODEL,
 						embeddingContext: item.context || null,
 						embeddingCreatedAt: Date.now(),
-					});
+					};
+					if (item.text) {
+						payload.textHash = computeTextHash(item.text);
+					}
+
+					batch.update(docRef, payload);
 					success++;
 				} catch (error) {
 					logger.warn(`Failed to add to batch: ${item.statementId}`, { error });

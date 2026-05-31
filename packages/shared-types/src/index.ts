@@ -12,7 +12,8 @@ export {
   StepType,
   Screen,
   SortType,
-  QuestionStep
+  QuestionStep,
+  ThemeStyle
 } from "./models/TypeEnums";
 export { isMember, maxKeyInObject, getRandomUID } from "./models/TypeUtils";
 export { functionConfig } from "./models/ConfigFunctions";
@@ -83,6 +84,13 @@ export type {
   UserEvaluationSchema
 } from "./models/evaluation/Evaluation";
 
+// Cluster evaluation provenance (grouped suggestions feature)
+export type { ClusterEvaluationLink } from "./models/evaluation/ClusterEvaluationLink";
+export {
+  ClusterEvaluationLinkSchema,
+  getClusterEvaluationLinkId,
+} from "./models/evaluation/ClusterEvaluationLink";
+
 export {
   EvaluationSchema,
   EvaluatorSchema,
@@ -112,6 +120,22 @@ export {
   hasPermissionLevel,
   INVITATION_EXPIRY
 } from "./models/adminInvitation/AdminInvitation";
+
+// Join Delegate models (per-question solution-editing delegation in the join app)
+export type {
+  JoinDelegatePermissions,
+  JoinDelegateInvitation,
+  JoinDelegate,
+} from "./models/joinDelegate";
+
+export {
+  JoinDelegateInvitationStatus,
+  JoinDelegatePermissionsSchema,
+  JoinDelegateInvitationSchema,
+  JoinDelegateSchema,
+  JOIN_DELEGATE_INVITE_EXPIRY_MS,
+  getJoinDelegateId,
+} from "./models/joinDelegate";
 
 // MassConsensus models
 export type {
@@ -192,13 +216,76 @@ export {
   statementToSimpleStatement
 } from "./models/statement/statementToSimple";
 export type {
-  StatementSettings
+  StatementSettings,
+  JoinFormField,
+  JoinFormFieldType,
+  JoinFormDestination,
+  JoinFormConfig,
+  JoinResolutionPhase,
+  JoinResolutionConfig,
+  ActivationThreshold,
+  CondensationConfig,
+  CondensationLevel,
+  CondensationSurfaceVisibility,
+  CondensationVisibility,
+  QuestionStatus
 } from "./models/statement/StatementSettings";
 
 export {
   StatementSettingsSchema,
-  evaluationType
+  evaluationType,
+  JoinFormFieldSchema,
+  JoinFormFieldTypeSchema,
+  JoinFormDestinationSchema,
+  JoinFormConfigSchema,
+  JoinResolutionPhaseSchema,
+  JoinResolutionConfigSchema,
+  ActivationThresholdSchema,
+  CondensationConfigSchema,
+  CondensationLevelSchema,
+  CondensationSurfaceVisibilitySchema,
+  CondensationVisibilitySchema,
+  QuestionStatusSchema
 } from "./models/statement/StatementSettings";
+
+export type {
+  JoinFormSubmission
+} from "./models/statement/JoinFormSubmission";
+
+export {
+  JoinFormSubmissionSchema,
+  JOIN_FORM_SUBMISSIONS_SUBCOLLECTION
+} from "./models/statement/JoinFormSubmission";
+
+export type {
+  JoinFormSubmissionHistoryEntry,
+  JoinFormSubmissionHistoryOperation,
+  JoinFormSubmissionHistoryRole,
+  JoinFormSubmissionHistoryRetention,
+  JoinFormMembershipSnapshot
+} from "./models/statement/JoinFormSubmissionHistory";
+
+export {
+  JoinFormSubmissionHistoryEntrySchema,
+  JoinFormSubmissionHistoryOperationSchema,
+  JoinFormSubmissionHistoryRoleSchema,
+  JoinFormSubmissionHistoryRetentionSchema,
+  JoinFormMembershipSnapshotSchema,
+  JOIN_FORM_SUBMISSIONS_HISTORY_COLLECTION,
+  JOIN_FORM_SUBMISSIONS_HISTORY_RETENTION_DAYS,
+  getJoinFormSubmissionHistoryId
+} from "./models/statement/JoinFormSubmissionHistory";
+
+export type {
+  JoinResolutionUser,
+  JoinResolutionUserStatus
+} from "./models/statement/JoinResolutionUser";
+
+export {
+  JoinResolutionUserSchema,
+  JoinResolutionUserStatusSchema,
+  JOIN_RESOLUTION_USERS_SUBCOLLECTION
+} from "./models/statement/JoinResolutionUser";
 export type {
   StatementSubscription,
   StatementView,
@@ -269,6 +356,8 @@ export { VoteSchema, getVoteId, VotingSettingsSchema } from "./models/vote/votin
 
 export type { StatementSnapShot } from "./models/statement/StatementSnapShot";
 export { statementSnapShotSchema } from "./models/statement/StatementSnapShot";
+export type { StatementHistoryEntry, StatementHistorySource } from "./models/statement/StatementHistoryEntry";
+export { StatementHistoryEntrySchema, StatementHistorySourceSchema } from "./models/statement/StatementHistoryEntry";
 
 export type { UserDemographicQuestion, DemographicOption, DemographicQuestionScope, ExcludedInheritedDemographics } from "./models/userDemographic/userDemographicModel";
 export {
@@ -361,19 +450,24 @@ export {
 export type { MadResult } from "./utils/madCalculation";
 export {
   calcMadAndMean,
-  calculateDCI,
+  calculateAgreementOnEvaluation,
   meetsKAnonymity,
   interpretDivergence,
-  interpretDCI,
+  interpretAgreementOnEvaluation,
   DEMOGRAPHIC_CONSTANTS,
 } from "./utils/madCalculation";
 
 // Consensus Calculation utilities
 export {
   FLOOR_STD_DEV,
+  BAYESIAN_PRIOR_K,
+  CONFIDENCE_ALPHA,
+  tCritical,
+  calcSmoothedSEM,
   calcStandardError,
   calcAgreement,
   calcBinaryConsensus,
+  calcMeanSentiment,
   DEFAULT_REMOVAL_THRESHOLD,
   DEFAULT_ADDITION_THRESHOLD,
   DEFAULT_MIN_EVALUATORS,
@@ -382,8 +476,24 @@ export {
   DEFAULT_SAMPLING_QUALITY,
   CONFIDENCE_CALIBRATION_CONSTANT,
   calcAgreementIndex,
+  calcLikeMindedness,
   calcConfidenceIndex,
 } from "./utils/consensusCalculation";
+
+// Strategic Export (AI-ready report) models
+export type {
+  StrategicExportRequest,
+  StrategicExportResponse,
+  StrategicExportMetadata,
+  StrategicExportSchema,
+  EvaluationAggregate,
+  AggregateMember,
+  DemographicSlice,
+  AggregatedSuggestion,
+  TopicGroup,
+  DemographicAnswerCount,
+  DemographicQuestionSummary,
+} from "./models/strategicExport/strategicExportModel";
 
 // Framing models
 export type {
@@ -408,6 +518,44 @@ export {
   getClusterAggregationId,
   isClusterAggregationValid,
 } from "./models/framing/framingModel";
+
+// Topic-Grouped Results Export
+export type {
+  AgreementShape,
+  AgreementHistogram,
+  SolutionEvaluationStats,
+  SynthesisProvenance,
+  RegenerationStatus,
+  SynthesizedSolutionEntry,
+  StandaloneSolutionEntry,
+  SolutionEntry,
+  TopicAgreement,
+  TopicBlock,
+  CoalitionEntry,
+  QuestionAgreement,
+  ExportThresholds,
+  ExportSummary,
+  FilteredOutBlock,
+  ResultsExportMeta,
+  ResultsExport,
+} from "./models/results-export/ResultsExport";
+
+export { RESULTS_EXPORT_SCHEMA_VERSION } from "./models/results-export/ResultsExport";
+
+// Topic-cluster pipeline cache models
+export type {
+  TaxonomyCategory,
+  ClusteringTaxonomyCache,
+  NormalizationAction,
+  ClusteringNormalizationCache,
+} from "./models/clustering/clusteringCacheModel";
+
+export {
+  TaxonomyCategorySchema,
+  ClusteringTaxonomyCacheSchema,
+  NormalizationActionSchema,
+  ClusteringNormalizationCacheSchema,
+} from "./models/clustering/clusteringCacheModel";
 
 // Embedding models
 export type {
@@ -565,3 +713,22 @@ export { getAdminStatDocId } from "./models/analytics";
 // Content moderation
 export type { ModerationLog } from "./models/moderation/moderationModel";
 export { ModerationLogSchema, ModerationCategory } from "./models/moderation/moderationModel";
+
+// Research logging
+export type { ResearchLog, ResearchCategory, ResearchConsent } from "./models/researchLog";
+export {
+  ResearchLogSchema,
+  ResearchAction,
+  ResearchActionSchema,
+  getResearchLogId,
+  ResearchConsentSchema,
+  getResearchConsentId,
+  bucketLoginCount,
+  normalizeScreenPath,
+  RESEARCH_ACTION_CATEGORY,
+  RESEARCH_ACTION_LABELS,
+  RESEARCH_CATEGORY_COLORS,
+  RESEARCH_GLOBAL_ACTIONS,
+  getResearchCategory,
+  getResearchActionLabel,
+} from "./models/researchLog";

@@ -32,6 +32,11 @@ import {
 import { parse } from 'valibot';
 import { logError } from '@/utils/errorHandling';
 import { convertTimestampsToMillis } from '@/helpers/timestampHelpers';
+import { NON_DOCUMENT_STATEMENT_TYPES } from '@/helpers/statementTypeHelpers';
+import {
+	createManagedCollectionListener,
+	generateListenerKey,
+} from '@/controllers/utils/firestoreListenerHelpers';
 
 // Helper to check if an error is IndexedDB-related
 function isIndexedDBError(error: unknown): boolean {
@@ -65,7 +70,7 @@ export const listenToStatementSubSubscriptions = (
 		const statementsSubscribeRef = collection(FireStore, Collections.statementsSubscribe);
 		const q = query(
 			statementsSubscribeRef,
-			where('statement.parentId', '==', statementId),
+			where('parentId', '==', statementId),
 			where('userId', '==', user.uid),
 			limit(20),
 		);
@@ -140,14 +145,23 @@ export function listenToStatementSubscriptions(
 		const statementsSubscribeRef = collection(FireStore, Collections.statementsSubscribe);
 		const q = query(
 			statementsSubscribeRef,
-			where('userId', '==', userId),
-			where('statement.parentId', '==', 'top'),
+			and(
+				where('userId', '==', userId),
+				or(where('parentId', '==', 'top'), where('statement.parentId', '==', 'top')),
+			),
 			orderBy('lastUpdate', 'desc'),
 			limit(numberOfStatements),
 		);
 
-		return onSnapshot(
+		const listenerKey = generateListenerKey(
+			'subscriptions-main',
+			'user',
+			`${userId}-${numberOfStatements}`,
+		);
+
+		return createManagedCollectionListener(
 			q,
+			listenerKey,
 			(subscriptionsDB) => {
 				subscriptionsDB.docChanges().forEach((change) => {
 					try {
@@ -192,6 +206,7 @@ export function listenToStatementSubscriptions(
 					});
 				}
 			},
+			'query',
 		);
 	} catch (error) {
 		logError(error, {
@@ -373,7 +388,7 @@ export function getNewStatementsFromSubscriptions(userId: string): Unsubscribe {
 			subscriptionsRef,
 			and(
 				where('userId', '==', userId),
-				where('statement.statementType', '!=', 'document'),
+				where('statementType', 'in', NON_DOCUMENT_STATEMENT_TYPES),
 				or(
 					where('role', '==', Role.admin),
 					where('role', '==', Role.creator),
@@ -384,8 +399,11 @@ export function getNewStatementsFromSubscriptions(userId: string): Unsubscribe {
 			limit(40),
 		);
 
-		return onSnapshot(
+		const listenerKey = generateListenerKey('subscriptions-updates', 'user', userId);
+
+		return createManagedCollectionListener(
 			q,
+			listenerKey,
 			(subscriptionsDB) => {
 				subscriptionsDB.docChanges().forEach((change) => {
 					const data = change.doc.data();
@@ -423,6 +441,7 @@ export function getNewStatementsFromSubscriptions(userId: string): Unsubscribe {
 					});
 				}
 			},
+			'query',
 		);
 	} catch (error) {
 		logError(error, { operation: 'subscriptions.getSubscriptions.unknown' });

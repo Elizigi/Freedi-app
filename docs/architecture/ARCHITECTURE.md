@@ -332,31 +332,31 @@ Key architectural concern: the notification system has scaling issues when state
 
 ---
 
-## 9. Known Scaling Issues in Cloud Functions
+## 9. Subscription Scaling & the Snapshot + Overlay Pattern
 
-The Cloud Functions layer has several patterns that cause exponential growth in function executions as the platform scales. These are the most critical architectural issues in the current codebase.
+The original architecture embedded a full `SimpleStatement` in each subscription document, and Cloud Functions rewrote ALL subscription docs whenever a statement was edited. This caused O(N) Firestore writes per edit — at 10,000 users, an estimated $25,000+/month in unnecessary costs.
 
-### Admin Privilege Escalation
+### What Was Fixed
 
-When a new statement is created, ALL administrators from the parent statement automatically become administrators of the child. In deep hierarchies this creates exponential growth — a level-3 statement might inherit dozens of admins, each triggering subscription document creation.
+**Snapshot + Overlay pattern.** Subscription documents now store a frozen "snapshot" of the statement from creation time. The Cloud Function `updateSubscriptionsSimpleStatement` has been **removed entirely** — zero fan-out writes on statement edits. The client overlays fresh data from Redux via `useHomeStatementOverlay`, so the home screen renders instantly from snapshots and titles update seamlessly once fresh data loads.
 
-### Notification Explosion
+**Top-level query fields.** Immutable fields (`parentId`, `statementType`, `topParentId`) have been promoted to top-level fields on subscription documents. Firestore queries now use these directly instead of nested `statement.parentId` paths. This decouples queries from the embedded statement data.
 
-When a statement is created, the system fetches ALL subscribers from the parent and top-level parent, then creates individual notification documents for EACH subscriber. A popular topic with 10,000 subscribers triggers 10,000+ document writes and 10,000+ push notifications per new statement.
+**Zero parent subscription fan-out.** The `updateParentSubscriptions` and `updateTopParentSubscriptions` functions have been removed entirely. The parent Statement document's `lastChildUpdate` field (a single doc write) is now the sole source of truth for child activity. The client sorts subscriptions using `getLatestChildActivity()` which reads `lastChildUpdate` from Redux.
 
-### Subscription Update Explosion
+**Admin inheritance cap.** `setupAdminsForStatement()` now limits inherited admins to 20 per statement, preventing exponential growth in deep hierarchies.
 
-When ANY field in a statement is updated, the system updates ALL subscription documents for that statement. A simple typo fix on a popular statement triggers thousands of database writes. The current code also lacks pagination (Firestore batches are limited to 500 documents) and has a parameter mismatch bug.
+**Notification optimization.** `updateInAppNotifications()` now fetches subscribers from the direct parent only (not all ancestors — the hierarchy walk was redundant since subscribers inherit via the subscription system). All queries are capped with `.limit(500)`. FCM push notifications use `sendEach()` batch API (1 API call per 500 tokens) instead of individual `send()` calls with 50ms delays. Token pre-validation (dry-run FCM messages) has been removed — invalid tokens are detected from `sendEach()` error responses directly, cutting FCM API calls in half.
 
-### Cascading Trigger Chains
+### Remaining Architectural Debt
 
-Multiple Firestore triggers create chains: an evaluation triggers statement updates, which trigger subscription updates, which can trigger notifications. These chains compound the issues above.
+**Full normalization.** The `statement` field still exists on subscription documents (as a frozen snapshot). A future optimization could remove it entirely, reducing document size by ~1-2KB. This would save storage costs but requires all clients to handle the case where `subscription.statement` is undefined.
 
-### Impact at Scale
+**Firestore query ordering for power users.** The home screen query uses `orderBy('lastUpdate', 'desc'), limit(100)` on subscriptions. Since subscription `lastUpdate` is no longer kept fresh by fan-out, Firestore returns subscriptions ordered by the user's last personal interaction rather than by discussion activity. For users with fewer than 100 subscriptions this has zero impact (client-side sorting handles it). For users with 100+ subscriptions, a very active discussion the user hasn't visited recently might not appear in the initial Firestore result.
 
-At 10,000 active users, conservative estimates put unnecessary Firebase costs at $30,000+/month. The architecture hits practical limits at roughly 1,000 concurrent users for notifications, 100 admins per statement, and 10,000 statements for batch operations.
+**Evaluation trigger chains.** Evaluation triggers still create chains (evaluation → statement update → parent update). These are less costly now that subscription fan-out is removed, but could still be optimized with debouncing.
 
-For detailed analysis and proposed solutions, see [functions/trigger-cascade-issues.md](./functions/trigger-cascade-issues.md) and [functions/trigger-cascade-solutions.md](./functions/trigger-cascade-solutions.md).
+For historical analysis and original proposals, see [functions/trigger-cascade-issues.md](./functions/trigger-cascade-issues.md) and [functions/trigger-cascade-solutions.md](./functions/trigger-cascade-solutions.md).
 
 ---
 

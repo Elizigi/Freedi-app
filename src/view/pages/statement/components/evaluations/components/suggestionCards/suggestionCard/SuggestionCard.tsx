@@ -13,7 +13,6 @@ import EyeIcon from '@/assets/icons/eye.svg?react';
 import EyeCrossIcon from '@/assets/icons/eyeCross.svg?react';
 import CheckIcon from '@/assets/icons/checkIcon.svg?react';
 import {
-	updateStatementText,
 	updateStatementMainImage,
 	toggleStatementHide,
 } from '@/controllers/db/statements/setStatements';
@@ -25,11 +24,8 @@ import IconButton from '@/view/components/iconButton/IconButton';
 import styles from './SuggestionCard.module.scss';
 import { StatementType, Statement } from '@freedi/shared-types';
 import { useAuthorization } from '@/controllers/hooks/useAuthorization';
-import { toggleJoining, ToggleJoiningResult } from '@/controllers/db/joining/setJoining';
+import JoinButtons from '@/view/pages/statement/components/joining/JoinButtons';
 import Joined from '@/view/components/joined/Joined';
-import ImprovementModal from '@/view/components/improvementModal/ImprovementModal';
-import { improveSuggestionWithTimeout } from '@/services/suggestionImprovement';
-import Loader from '@/view/components/loaders/Loader';
 import CommunityBadge from '@/view/components/badges/CommunityBadge';
 import AnchoredBadge from '@/view/components/badges/AnchoredBadge';
 import UploadImage from '@/view/components/uploadImage/UploadImage';
@@ -51,13 +47,11 @@ const SuggestionCard: FC<Props> = ({ parentStatement, statement }) => {
 
 	const { t, dir } = useTranslation();
 	// Use parent's authorization instead of individual card authorization
-	const { isAuthorized, isAdmin, creator } = useAuthorization(parentStatement?.statementId);
+	const { isAuthorized, isAdmin } = useAuthorization(parentStatement?.statementId);
 	const enableJoining = parentStatement?.statementSettings?.joiningEnabled;
-	const singleJoinOnly = parentStatement?.statementSettings?.singleJoinOnly;
 	const minJoinMembers = parentStatement?.statementSettings?.minJoinMembers;
 	const maxJoinMembers = parentStatement?.statementSettings?.maxJoinMembers;
 	const showEvaluation = parentStatement?.statementSettings?.showEvaluation;
-	const enableAIImprovement = parentStatement?.statementSettings?.enableAIImprovement;
 	const showBadges =
 		parentStatement?.evaluationSettings?.anchored?.differentiateBetweenAnchoredAndNot;
 	const isAnchored = statement?.anchored === true;
@@ -73,9 +67,7 @@ const SuggestionCard: FC<Props> = ({ parentStatement, statement }) => {
 	// Early return if statement is not defined
 	if (!statement) return null;
 
-	const hasJoinedServer = statement?.joined?.find((c) => c?.uid === creator?.uid) ? true : false;
-
-	// Join count and status for visual indicators
+	// Join count/status indicators apply to activists only (min/max on joined[]).
 	const joinedCount = statement?.joined?.length ?? 0;
 	const isBelowMinimum =
 		enableJoining && minJoinMembers !== undefined && joinedCount < minJoinMembers;
@@ -85,28 +77,11 @@ const SuggestionCard: FC<Props> = ({ parentStatement, statement }) => {
 	const exceedsMaximum =
 		enableJoining && maxJoinMembers !== undefined && joinedCount > maxJoinMembers;
 
-	// Optimistic state for instant UI updates
-	const [hasJoinedOptimistic, setHasJoinedOptimistic] = useState(hasJoinedServer);
-	const [isJoinLoading, setIsJoinLoading] = useState(false);
-
-	// Update optimistic state when server state changes
-	useEffect(() => {
-		setHasJoinedOptimistic(hasJoinedServer);
-	}, [hasJoinedServer]);
-
 	// Use States
 	const [isEdit, setIsEdit] = useState(false);
 	const [shouldShowAddSubQuestionModal, setShouldShowAddSubQuestionModal] = useState(false);
 	const [isCardMenuOpen, setIsCardMenuOpen] = useState(false);
 	const [isExpanded, setIsExpanded] = useState(false);
-
-	// Improvement feature states
-	const [showImprovementModal, setShowImprovementModal] = useState(false);
-	const [isImproving, setIsImproving] = useState(false);
-	const [originalTitle, setOriginalTitle] = useState<string | null>(null);
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
-	const [originalDescription, setOriginalDescription] = useState<string | null>(null);
-	const [hasBeenImproved, setHasBeenImproved] = useState(false);
 
 	// Image states
 	const imageUrl = statement?.imagesURL?.main ?? '';
@@ -178,107 +153,52 @@ const SuggestionCard: FC<Props> = ({ parentStatement, statement }) => {
 		}
 	}
 
-	async function handleJoin() {
-		// Optimistically update the UI immediately
-		setHasJoinedOptimistic(!hasJoinedOptimistic);
-		setIsJoinLoading(true);
-
-		try {
-			// Call the API function with parentStatementId for single-join logic
-			const result: ToggleJoiningResult = await toggleJoining({
-				statementId: statement.statementId,
-				parentStatementId: parentStatement?.statementId,
-			});
-
-			if (!result.success) {
-				// If the API call fails, revert the optimistic update
-				setHasJoinedOptimistic(hasJoinedOptimistic);
-				logError(new Error(result.error ?? t('Failed to toggle joining')), {
-					operation: 'SuggestionCard.handleJoinToggle',
-				});
-			} else if (result.leftStatementTitle && singleJoinOnly) {
-				// Show notification that user left another option
-				console.info(t('You left') + ` "${result.leftStatementTitle}" ` + t('to join this option'));
-			}
-		} catch (error) {
-			// If the API call fails, revert the optimistic update
-			logError(error, {
-				operation: 'suggestionCard.SuggestionCard.with',
-				metadata: { message: 'Failed to toggle joining:' },
-			});
-			setHasJoinedOptimistic(hasJoinedOptimistic);
-		} finally {
-			setIsJoinLoading(false);
-		}
-	}
-
-	async function handleImprove(instructions: string) {
-		try {
-			setIsImproving(true);
-			setShowImprovementModal(false);
-
-			// Store original title and summary before improvement
-			if (!originalTitle) {
-				setOriginalTitle(statement.statement);
-				setOriginalDescription(statement.summary || null);
-			}
-
-			// Call the improvement service with title and summary, including parent context
-			// Increased timeout to 45 seconds to handle longer AI processing times
-			const { improvedTitle } = await improveSuggestionWithTimeout(
-				statement.statement,
-				statement.summary,
-				instructions,
-				parentStatement?.statement, // Parent question/title for context
-				parentStatement?.summary, // Parent summary for additional context
-				45000, // 45 seconds timeout
-			);
-
-			// Update title in the database (paragraphs not modified by AI improvement)
-			await updateStatementText(statement, improvedTitle);
-
-			// Mark as improved and enable edit mode
-			setHasBeenImproved(true);
-			setIsEdit(true);
-		} catch (error) {
-			logError(error, {
-				operation: 'suggestionCard.SuggestionCard.handleImprove',
-				metadata: { message: 'Failed to improve suggestion:' },
-			});
-			// Show more specific error message based on the error type
-			let errorMessage = t('Failed to improve suggestion. Please try again.');
-			if (error instanceof Error) {
-				if (error.message.includes('timed out')) {
-					errorMessage = t(
-						'The improvement request took too long. Please try again with simpler instructions.',
-					);
-				} else if (error.message.includes('network')) {
-					errorMessage = t('Network error. Please check your connection and try again.');
-				}
-			}
-			alert(errorMessage);
-		} finally {
-			setIsImproving(false);
-		}
-	}
-
-	function handleUndo() {
-		if (originalTitle) {
-			// Restore original title
-			updateStatementText(statement, originalTitle);
-			setHasBeenImproved(false);
-			setOriginalTitle(null);
-			setOriginalDescription(null);
-			setIsEdit(false);
-		}
-	}
-
 	const statementAge = new Date().getTime() - statement.createdAt;
 	const hasChildren = parentStatement?.statementSettings?.hasChildren;
 
 	function handleRightClick(e: React.MouseEvent) {
 		e.preventDefault();
 		setIsCardMenuOpen(!isCardMenuOpen);
+	}
+
+	// Block any clicks that might propagate to chat button
+	function handleCardAreaClick(e: React.MouseEvent<HTMLDivElement>) {
+		const target = e.target as HTMLElement;
+
+		// If click is on the chat button or within it, let it proceed
+		const chatButton = elementRef.current?.querySelector(
+			'[data-testid="statement-chat-more-button"]',
+		);
+		if (chatButton && chatButton.contains(target)) {
+			return; // Allow chat button clicks
+		}
+
+		// For all other clicks, make absolutely sure they don't bubble to parent handlers
+		// and don't trigger any navigation
+		if (target.closest('button') || target.closest('a') || target.closest('[role="button"]')) {
+			// These are interactive elements, let them handle themselves
+			return;
+		}
+
+		e.stopPropagation();
+	}
+
+	// Also handle pointer events to catch all interaction types
+	function handleCardPointerDown(e: React.PointerEvent<HTMLDivElement>) {
+		const target = e.target as HTMLElement;
+		const chatButton = elementRef.current?.querySelector(
+			'[data-testid="statement-chat-more-button"]',
+		);
+
+		// Don't block pointer events on the chat button
+		if (chatButton && chatButton.contains(target)) {
+			return;
+		}
+
+		// Block pointer events on non-interactive areas
+		if (!target.closest('button') && !target.closest('a') && !target.closest('[role="button"]')) {
+			e.preventDefault();
+		}
 	}
 
 	// Check if statement is in parent's results array (evaluation/consensus winner)
@@ -300,6 +220,8 @@ const SuggestionCard: FC<Props> = ({ parentStatement, statement }) => {
 	return (
 		<div
 			onContextMenu={(e) => handleRightClick(e)}
+			onClick={handleCardAreaClick}
+			onPointerDown={handleCardPointerDown}
 			className={`
 				${styles['statement-evaluation-card']}
 				${statementAge < 10000 ? styles['statement-evaluation-card--new'] : ''}
@@ -346,13 +268,6 @@ const SuggestionCard: FC<Props> = ({ parentStatement, statement }) => {
 				</button>
 			)}
 
-			{/* Loader overlay when improving */}
-			{isImproving && (
-				<div className={styles.loaderOverlay}>
-					<Loader />
-					<p>{t('Improving suggestion...')}</p>
-				</div>
-			)}
 			{/* Voting winner badge - compact pill with checkmark */}
 			{showEvaluation && isVotingWinner && (
 				<div
@@ -385,20 +300,16 @@ const SuggestionCard: FC<Props> = ({ parentStatement, statement }) => {
 						<div
 							className={`${styles.textContent} ${isExpanded ? styles.textContentExpanded : ''}`}
 							ref={textContainerRef}
+							onClick={(e) => {
+								e.stopPropagation();
+								e.preventDefault();
+							}}
 						>
 							<EditableStatement
 								statement={statement}
 								multiline={true}
 								forceEditing={isEdit}
-								onSaveSuccess={() => {
-									setIsEdit(false);
-									// Reset improvement state when user saves
-									if (hasBeenImproved) {
-										setHasBeenImproved(false);
-										setOriginalTitle(null);
-										setOriginalDescription(null);
-									}
-								}}
+								onSaveSuccess={() => setIsEdit(false)}
 								onEditEnd={() => setIsEdit(false)}
 								className={styles.editableCard}
 								inputClassName={styles.editInput}
@@ -423,28 +334,12 @@ const SuggestionCard: FC<Props> = ({ parentStatement, statement }) => {
 									{t('Add Image')}
 								</button>
 							)}
-							{/* Show Improve button only if AI improvement is enabled */}
-							{enableAIImprovement && !hasBeenImproved && (
-								<button
-									onClick={() => setShowImprovementModal(true)}
-									disabled={isImproving}
-									className={`btn btn--small btn--secondary ${isImproving ? 'btn--disabled' : ''}`}
-								>
-									{isImproving ? t('Improving...') : t('Improve')}
-								</button>
-							)}
-							{/* Show Undo button when suggestion has been improved and AI improvement is enabled */}
-							{enableAIImprovement && hasBeenImproved && (
-								<button onClick={handleUndo} className="btn btn--small btn--cancel">
-									{t('Undo')}
-								</button>
-							)}
 							{enableJoining && (
 								<>
 									<Joined statement={statement} />
 									{/* Room Badge - shows user's assigned room for this option */}
 									<RoomBadge statementId={statement.statementId} />
-									{/* Join count indicator */}
+									{/* Join count indicator — activists only */}
 									{(minJoinMembers !== undefined || maxJoinMembers !== undefined) && (
 										<span
 											className={`
@@ -458,20 +353,7 @@ const SuggestionCard: FC<Props> = ({ parentStatement, statement }) => {
 											{maxJoinMembers !== undefined && `/${maxJoinMembers}`} {t('members')}
 										</span>
 									)}
-									<button
-										onClick={handleJoin}
-										disabled={isJoinLoading}
-										className="btn btn--small"
-										style={{
-											backgroundColor: hasJoinedOptimistic ? 'var(--approve)' : 'inherit',
-											color: hasJoinedOptimistic ? 'white' : 'inherit',
-											borderColor: hasJoinedOptimistic ? 'var(--approve)' : 'inherit',
-											opacity: isJoinLoading ? 0.7 : 1,
-											cursor: isJoinLoading ? 'not-allowed' : 'pointer',
-										}}
-									>
-										{hasJoinedOptimistic ? t('Leave') : t('Join')}
-									</button>
+									<JoinButtons statement={statement} parentStatement={parentStatement} />
 								</>
 							)}
 						</div>
@@ -536,14 +418,6 @@ const SuggestionCard: FC<Props> = ({ parentStatement, statement }) => {
 					/>
 				)}
 			</div>
-			{/* Improvement Modal */}
-			<ImprovementModal
-				isOpen={showImprovementModal}
-				onClose={() => setShowImprovementModal(false)}
-				onImprove={handleImprove}
-				isLoading={isImproving}
-				suggestionTitle={statement.statement}
-			/>
 			{/* Upload area for initial image upload */}
 			{!image && showImageUpload && (
 				<div className={styles.uploadArea}>

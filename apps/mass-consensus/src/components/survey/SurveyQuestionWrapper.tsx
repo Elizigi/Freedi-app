@@ -1,11 +1,13 @@
 'use client';
 
-import { ReactNode, useState, useEffect, useCallback, useMemo } from 'react';
+import { ReactNode, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { SurveyWithQuestions } from '@/types/survey';
 import { MergedQuestionSettings } from '@/lib/utils/settingsUtils';
 import { logError } from '@/lib/utils/errorHandling';
 import SurveyProgressBar from './SurveyProgress';
 import SurveyNavigation from './SurveyNavigation';
+import ResearchConsentBanner from '@/components/shared/ResearchConsentBanner';
 import styles from './Survey.module.scss';
 
 interface SurveyQuestionWrapperProps {
@@ -18,6 +20,10 @@ interface SurveyQuestionWrapperProps {
   children: ReactNode;
   /** Merged settings for the current question (survey + per-question overrides) */
   mergedSettings: MergedQuestionSettings;
+  /** Whether research logging is enabled for this question */
+  enableResearchLogging?: boolean;
+  /** Top parent statement ID for research consent */
+  topParentId?: string;
 }
 
 // Custom event types for communication between components
@@ -27,6 +33,7 @@ declare global {
     'show-view-progress': CustomEvent<{ show: boolean }>;
     'trigger-add-suggestion': CustomEvent;
     'trigger-view-progress': CustomEvent;
+    'trigger-next-question': CustomEvent;
   }
 }
 
@@ -40,7 +47,11 @@ export default function SurveyQuestionWrapper({
   questionId,
   children,
   mergedSettings,
+  enableResearchLogging = false,
+  topParentId,
 }: SurveyQuestionWrapperProps) {
+  const router = useRouter();
+
   // Track completed question indices (stored in localStorage for persistence)
   const [completedIndices, setCompletedIndices] = useState<number[]>([]);
   const [evaluatedCount, setEvaluatedCount] = useState(0);
@@ -206,8 +217,64 @@ export default function SurveyQuestionWrapper({
     }
   };
 
+  // Listen for "Next Question" event from batch complete banner
+  // Uses refs to avoid stale closures while keeping dependencies minimal
+  const completedIndicesRef = useRef(completedIndices);
+  completedIndicesRef.current = completedIndices;
+
+  useEffect(() => {
+    const handleTriggerNextQuestion = () => {
+      const isLast = currentIndex === totalFlowItems - 1;
+
+      // Mark current question as completed (same logic as handleNavigate('next'))
+      if (!completedIndicesRef.current.includes(currentIndex)) {
+        const newCompleted = [...completedIndicesRef.current, currentIndex];
+        setCompletedIndices(newCompleted);
+
+        const storageKey = `survey_progress_${survey.surveyId}`;
+        localStorage.setItem(storageKey, JSON.stringify({
+          completedIndices: newCompleted,
+          lastUpdated: Date.now(),
+        }));
+
+        fetch(`/api/surveys/${survey.surveyId}/progress`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            currentQuestionIndex: currentIndex + 1,
+            completedQuestionId: questionId,
+            isCompleted: isLast,
+          }),
+        }).catch((error) => {
+          logError(error, {
+            operation: 'SurveyQuestionWrapper.triggerNextQuestion',
+            metadata: { surveyId: survey.surveyId },
+          });
+        });
+      }
+
+      if (isLast) {
+        router.push(`/s/${survey.surveyId}/complete`);
+      } else {
+        router.push(`/s/${survey.surveyId}/q/${currentIndex + 1}`);
+      }
+    };
+
+    window.addEventListener('trigger-next-question', handleTriggerNextQuestion);
+    return () => {
+      window.removeEventListener('trigger-next-question', handleTriggerNextQuestion);
+    };
+  }, [currentIndex, totalFlowItems, survey.surveyId, questionId, router]);
+
   return (
     <div className={styles.questionWrapper}>
+      {enableResearchLogging && topParentId && (
+        <ResearchConsentBanner
+          topParentId={topParentId}
+          enableResearchLogging={enableResearchLogging}
+        />
+      )}
       <SurveyProgressBar
         currentIndex={currentIndex}
         totalQuestions={totalFlowItems}

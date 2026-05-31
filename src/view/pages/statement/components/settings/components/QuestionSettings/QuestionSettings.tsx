@@ -32,14 +32,48 @@ import CustomSwitchSmall from '@/view/components/switch/customSwitchSmall/Custom
 import { setEvaluationUIType } from '@/controllers/db/evaluation/setEvaluation';
 import VotingSettings from './votingSettings/VotingSettings';
 import { logError } from '@/utils/errorHandling';
+import { requestSurveyBackup } from '@/controllers/db/backup/backupController';
 
 // Sub-components
 import QuestionLinkSection from './QuestionLinkSection';
 import AnchoredSettings from './AnchoredSettings';
 import ConfidenceIndexSettings from './ConfidenceIndexSettings';
+import JoinFormSettings from './JoinFormSettings/JoinFormSettings';
+import JoinResolutionSettings from './JoinResolutionSettings/JoinResolutionSettings';
 
 const QuestionSettings: FC<StatementSettingsProps> = ({ statement }) => {
 	const { t } = useTranslation();
+	const [backupStatus, setBackupStatus] = React.useState<
+		| { kind: 'idle' }
+		| { kind: 'pending' }
+		| { kind: 'done'; destination: string }
+		| { kind: 'error'; message: string }
+	>({ kind: 'idle' });
+
+	async function handleAutoBackupToggle(enabled: boolean) {
+		setStatementSettingToDB({
+			statement,
+			property: 'autoBackup',
+			newValue: enabled,
+			settingsSection: 'questionSettings',
+		});
+		// Flipping ON also fires one immediate backup so the admin doesn't have
+		// to wait until the next 03:00 cron to see a file land.
+		if (enabled) {
+			setBackupStatus({ kind: 'pending' });
+			try {
+				const res = await requestSurveyBackup(statement.statementId);
+				setBackupStatus({ kind: 'done', destination: res.destination });
+			} catch (error) {
+				setBackupStatus({
+					kind: 'error',
+					message: error instanceof Error ? error.message : String(error),
+				});
+			}
+		} else {
+			setBackupStatus({ kind: 'idle' });
+		}
+	}
 
 	try {
 		const { questionSettings } = statement;
@@ -156,7 +190,7 @@ const QuestionSettings: FC<StatementSettingsProps> = ({ statement }) => {
 				<MultiSwitch
 					options={[
 						{
-							label: t('Agreement'),
+							label: t('Like-mindedness'),
 							value: EvaluationUI.suggestions,
 							icon: <SuggestionsIcon />,
 							toolTip: t('Consensus'),
@@ -249,6 +283,41 @@ const QuestionSettings: FC<StatementSettingsProps> = ({ statement }) => {
 
 				<SectionTitle title={t('Sample Representativeness')} />
 				<ConfidenceIndexSettings statement={statement} />
+
+				<JoinFormSettings statement={statement} />
+				<JoinResolutionSettings statement={statement} />
+
+				<SectionTitle title={t('Daily Backup')} />
+				<p className={styles.sectionDescription}>
+					{t(
+						'When on, this question is included in the nightly backup at 03:00. Flipping it on also runs an immediate backup so you have a snapshot now.',
+					)}
+				</p>
+				<CustomSwitchSmall
+					label={t('Auto-backup this question')}
+					checked={questionSettings?.autoBackup === true}
+					setChecked={handleAutoBackupToggle}
+					textChecked={t('Auto-backup on')}
+					textUnchecked={t('Auto-backup off')}
+					imageChecked={<EvaluationsIcon />}
+					imageUnchecked={<EvaluationsIcon />}
+					colorChecked="var(--question)"
+					colorUnchecked="var(--question)"
+				/>
+				{backupStatus.kind === 'pending' && (
+					<p className={styles.sectionDescription}>{t('Requesting backup…')}</p>
+				)}
+				{backupStatus.kind === 'done' && (
+					<p className={styles.sectionDescription}>
+						{t('Backup queued. It will land here within a minute or two:')}{' '}
+						<code>{backupStatus.destination}</code>
+					</p>
+				)}
+				{backupStatus.kind === 'error' && (
+					<p className={styles.sectionDescription}>
+						{t('Backup failed:')} {backupStatus.message}
+					</p>
+				)}
 			</div>
 		);
 	} catch (error: unknown) {

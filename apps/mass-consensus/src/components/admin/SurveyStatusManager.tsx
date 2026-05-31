@@ -6,11 +6,19 @@ import { useTranslation } from '@freedi/shared-i18n/next';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Survey, SurveyStatus, TestDataCounts } from '@/types/survey';
 import { logError } from '@/lib/utils/errorHandling';
+import SynthesisStatusSummary from './SynthesisStatusSummary';
 import styles from './Admin.module.scss';
 
 interface SurveyStatusManagerProps {
   survey: Survey;
   onStatusChange: (updatedSurvey: Survey) => void;
+}
+
+interface QuestionFunnelItem {
+  questionId: string;
+  questionText: string;
+  usersEvaluated: number;
+  percentage: number;
 }
 
 interface SurveyStats {
@@ -19,6 +27,7 @@ interface SurveyStats {
   completionRate: number;
   testResponseCount?: number;
   testCompletionCount?: number;
+  questionFunnel?: QuestionFunnelItem[];
 }
 
 interface PilotDataCounts {
@@ -57,7 +66,7 @@ export default function SurveyStatusManager({ survey, onStatusChange }: SurveySt
 
         return;
       }
-      const response = await fetch(`/api/surveys/${survey.surveyId}/stats`, {
+      const response = await fetch(`/api/surveys/${survey.surveyId}/stats?includeFunnel=true`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.ok) {
@@ -316,6 +325,9 @@ export default function SurveyStatusManager({ survey, onStatusChange }: SurveySt
         </div>
       )}
 
+      {/* Synthesis Status (operational view of AI auto-merging) */}
+      <SynthesisStatusSummary survey={survey} />
+
       {/* Test Mode Section */}
       <div className={styles.testModeSection}>
         <div className={styles.testModeHeader}>
@@ -443,6 +455,61 @@ export default function SurveyStatusManager({ survey, onStatusChange }: SurveySt
               <span>{stats.testResponseCount} {t('responses')}</span>
               <span>|</span>
               <span>{stats.testCompletionCount} {t('completions')}</span>
+            </div>
+          )}
+
+          {/* Per-question funnel */}
+          {stats.questionFunnel && stats.questionFunnel.length > 0 && (
+            <div className={styles.funnelSection}>
+              <h4 className={styles.funnelTitle}>{t('dropOffFunnel') || 'Drop-off Funnel'}</h4>
+              <div className={styles.funnelList}>
+                {/* Entry row */}
+                <div className={styles.funnelRow}>
+                  <div className={styles.funnelBarTrack}>
+                    <div className={styles.funnelBarFill} style={{ width: '100%' }} />
+                  </div>
+                  <div className={styles.funnelRowInfo}>
+                    <span className={styles.funnelRowLabel}>{t('enteredSurvey') || 'Entered survey'}</span>
+                    <span className={styles.funnelRowCount}>
+                      {stats.responseCount} <span className={styles.funnelRowPct}>(100%)</span>
+                    </span>
+                  </div>
+                </div>
+                {/* Per-question rows */}
+                {stats.questionFunnel.map((q, i) => (
+                  <div key={q.questionId} className={styles.funnelRow}>
+                    <div className={styles.funnelBarTrack}>
+                      <div
+                        className={styles.funnelBarFill}
+                        style={{ width: `${q.percentage}%` }}
+                      />
+                    </div>
+                    <div className={styles.funnelRowInfo}>
+                      <span className={styles.funnelRowLabel}>
+                        Q{i + 1}: {q.questionText}
+                      </span>
+                      <span className={styles.funnelRowCount}>
+                        {q.usersEvaluated} <span className={styles.funnelRowPct}>({q.percentage}%)</span>
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {/* Completed row */}
+                <div className={styles.funnelRow}>
+                  <div className={styles.funnelBarTrack}>
+                    <div
+                      className={`${styles.funnelBarFill} ${styles.funnelBarComplete}`}
+                      style={{ width: `${stats.completionRate}%` }}
+                    />
+                  </div>
+                  <div className={styles.funnelRowInfo}>
+                    <span className={styles.funnelRowLabel}>{t('completedSurvey') || 'Completed survey'}</span>
+                    <span className={styles.funnelRowCount}>
+                      {stats.completionCount} <span className={styles.funnelRowPct}>({stats.completionRate}%)</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>

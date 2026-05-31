@@ -25,7 +25,12 @@ export async function compareBrowserTokens() {
 	console.info('2. Current Token:', currentToken);
 
 	// Get all tokens for current user
-	const user = JSON.parse(localStorage.getItem('userAuth') || '{}');
+	let user: { uid?: string } = {};
+	try {
+		user = JSON.parse(localStorage.getItem('userAuth') || '{}');
+	} catch {
+		user = {};
+	}
 	if (!user.uid) {
 		logError(new Error('No user logged in'), {
 			operation: 'utils.compareBrowserTokens.compareBrowserTokens',
@@ -90,8 +95,8 @@ export async function compareBrowserTokens() {
 	console.info('\n%c=== END COMPARISON ===', 'color: purple; font-weight: bold');
 }
 
-// Add to window
-if (typeof window !== 'undefined') {
+// Add to window — only in development to avoid PII exposure in production
+if (typeof window !== 'undefined' && import.meta.env.DEV) {
 	(window as { compareBrowserTokens?: typeof compareBrowserTokens }).compareBrowserTokens =
 		compareBrowserTokens;
 }
